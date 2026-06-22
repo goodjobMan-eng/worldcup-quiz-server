@@ -38,10 +38,26 @@ function getOrCreateRoom(roomCode: string): Room {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  
+  // 💡 [렌더 최적화] 렌더 서버가 유동적으로 배정하는 포트를 수용하도록 수정
+  const PORT = process.env.PORT || 3000;
 
   // JSON 파싱 미들웨어
   app.use(express.json());
+
+  // 💡 [CORS 자물쇠 해제] 구글 AI 스튜디오 등 외부 사이트의 API 호출을 전면 허용합니다.
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    
+    // 브라우저가 본 요청 전에 안전한지 간보는 OPTIONS 요청은 즉시 200 OK로 통과
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
 
   // --- API Routes 시작 ---
 
@@ -173,8 +189,9 @@ async function startServer() {
     });
   }
 
+  // 0.0.0.0 포트로 외부 개방 수신 시작
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Server] Live classroom quiz backend running on http://localhost:${PORT}`);
+    console.log(`[Server] Live classroom quiz backend running on port ${PORT}`);
   });
 }
 
