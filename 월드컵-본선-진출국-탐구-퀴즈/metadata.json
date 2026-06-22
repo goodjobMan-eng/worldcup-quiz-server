@@ -1,0 +1,6 @@
+{
+  "name": "월드컵 본선 진출국 탐구 퀴즈",
+  "description": "초등학교 6학년 사회 및 체육 수업을 위한 월드컵 본선 진출국 퀴즈 게임",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
