@@ -1,0 +1,170 @@
+rules_version = '2';
+
+// =====================================================================
+// 마지초 6학년 방학숙제 앱 — 다중 학급 RBAC 보안 규칙
+//
+// 원칙
+//  1) 교사: 자신의 학급(classes/{classId}) 데이터만 완전한 읽기/쓰기.
+//     동학년 공유 컬렉션(mathBank, writingTopics)은 모든 교사가 읽기/쓰기.
+//  2) 학생: 자신이 소속된 학급의 "본인 UID 문서"만 읽기/쓰기.
+//     타 학생 데이터, 교사 뷰, 타 학급 접근은 원천 차단.
+//  3) 채점 결과(isCompleted, gradedAt, isSubmitted, submittedAt)는
+//     클라이언트가 절대 쓸 수 없음 → Cloud Functions(Admin SDK)만 기록.
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- 공통 헬퍼 ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isTeacher() {
+      return isSignedIn() && me().role == 'teacher';
+    }
+
+    function isTeacherOf(classId) {
+      // 해당 학급의 담임 교사인지 확인 (학급 문서 기준으로 이중 검증)
+      return isTeacher()
+        && get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
+    }
+
+    function isApprovedStudentOf(classId) {
+      return isSignedIn()
+        && me().role == 'student'
+        && me().classId == classId
+        && me().approved == true;
+    }
+
+    // 지정된 필드들이 변경되지 않았는지 검사 (서버 전용 필드 보호, update 전용)
+    function untouched(fields) {
+      return !request.resource.data.diff(resource.data)
+        .affectedKeys().hasAny(fields);
+    }
+
+    // ---------- users: 전역 역할 문서 ----------
+    match /users/{uid} {
+      // 본인 문서 읽기 + 교사는 학급 관리를 위해 소속 학생 문서 읽기 가능
+      allow read: if isSignedIn()
+        && (request.auth.uid == uid || isTeacherOf(resource.data.classId));
+      // 생성: 본인 문서만, 역할/승인/학급 배정은 서버(callable)가 수행
+      //  → 클라이언트는 role, approved, classId를 직접 쓸 수 없음
+      allow create: if request.auth.uid == uid
+        && !request.resource.data.keys().hasAny(['role', 'approved', 'classId']);
+      allow update: if request.auth.uid == uid
+        && untouched(['role', 'approved', 'classId']);
+      allow delete: if false;
+    }
+
+    // ---------- joinCodes: 참여 코드 ----------
+    // 코드 검증은 Cloud Function이 수행하므로 클라이언트 접근 전면 차단
+    match /joinCodes/{code} {
+      allow read, write: if false;
+    }
+
+    // ---------- 동학년 공유 콘텐츠 ----------
+    // 수학 문제 은행: 교사 전원 읽기/쓰기, 승인된 학생은 읽기만
+    match /mathBank/{dayId} {
+      allow read: if isTeacher() || (isSignedIn() && me().approved == true);
+      allow write: if isTeacher();
+    }
+
+    // 30일 글쓰기 주제: 동일 정책
+    match /writingTopics/{dayId} {
+      allow read: if isTeacher() || (isSignedIn() && me().approved == true);
+      allow write: if isTeacher();
+    }
+
+    // ---------- 학급별 독립 데이터 ----------
+    match /classes/{classId} {
+      // 학급 문서: 담임만 쓰기, 소속 구성원만 읽기
+      allow read: if isTeacherOf(classId) || isApprovedStudentOf(classId);
+      allow create: if isTeacher()
+        && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isTeacherOf(classId);
+
+      // 당일 자기 점검 항목 템플릿: 교사가 부여, 학생은 읽기만
+      match /selfCheckTemplates/{dateKey} {
+        allow read: if isTeacherOf(classId) || isApprovedStudentOf(classId);
+        allow write: if isTeacherOf(classId);
+      }
+
+      // 학생 문서
+      match /students/{studentId} {
+        // 교사: 자기 학급 전체 열람/관리. 학생: 본인 문서만.
+        allow read: if isTeacherOf(classId)
+          || (isApprovedStudentOf(classId) && request.auth.uid == studentId);
+        // 학생 등록은 Cloud Function(joinClass callable)이 수행
+        allow create: if isTeacherOf(classId);
+        // 학생 본인은 notifications의 읽음 처리 등 제한적 수정만 가능
+        //  (approved 등 관리 필드는 교사/서버만)
+        allow update: if isTeacherOf(classId)
+          || (isApprovedStudentOf(classId)
+              && request.auth.uid == studentId
+              && untouched(['approved', 'name', 'joinedAt']));
+        allow delete: if isTeacherOf(classId);
+
+        // ----- 수학 제출: 채점 필드는 서버 전용 -----
+        match /mathProgress/{dayId} {
+          allow read: if isTeacherOf(classId)
+            || (isApprovedStudentOf(classId) && request.auth.uid == studentId);
+          // 학생은 답안(answers, userLines)만 기록 가능.
+          // isCompleted / gradedAt은 생성·수정 어느 경우에도 클라이언트 불가.
+          allow create: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId
+            && !request.resource.data.keys().hasAny(['isCompleted', 'gradedAt']);
+          allow update: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId
+            && untouched(['isCompleted', 'gradedAt']);
+          allow delete: if false;
+        }
+
+        // ----- 글쓰기 제출: 제출 확정 필드는 서버 전용 -----
+        match /writingSubmissions/{dayId} {
+          allow read: if isTeacherOf(classId)
+            || (isApprovedStudentOf(classId) && request.auth.uid == studentId);
+          allow create: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId
+            && !request.resource.data.keys().hasAny(['isSubmitted', 'submittedAt']);
+          allow update: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId
+            && untouched(['isSubmitted', 'submittedAt']);
+          allow delete: if false;
+        }
+
+        // ----- 일일 자기 점검: 본인만 기록 -----
+        match /selfChecks/{dateKey} {
+          allow read: if isTeacherOf(classId)
+            || (isApprovedStudentOf(classId) && request.auth.uid == studentId);
+          allow create, update: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId;
+          allow delete: if false;
+        }
+
+        // ----- 감정 체크인: 학생 본인 쓰기, 열람은 본인+담임만 -----
+        //       (학생들끼리는 서로 볼 수 없음 — read 규칙이 원천 차단)
+        match /emotions/{dateKey} {
+          allow read: if isTeacherOf(classId)
+            || (isApprovedStudentOf(classId) && request.auth.uid == studentId);
+          allow create: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId;
+          // 당일 수정은 허용하되 소급 위조 방지를 위해 createdAt 변경 금지
+          allow update: if isApprovedStudentOf(classId)
+            && request.auth.uid == studentId
+            && untouched(['createdAt']);
+          allow delete: if false;
+        }
+      }
+    }
+
+    // 그 외 모든 경로는 기본 거부
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
