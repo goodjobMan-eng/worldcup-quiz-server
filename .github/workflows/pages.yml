@@ -1,7 +1,7 @@
 name: NATIONLAB 정적 웹앱 배포
 on:
   push:
-    branches: [nationlab-sandbox]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
