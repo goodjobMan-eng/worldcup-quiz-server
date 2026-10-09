@@ -1,3 +1,4 @@
+import {mineFloor,mineLand,mineEntrance,mineExit} from './terrain';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -10,7 +11,7 @@ export default function VoxelWorld(props:VoxelWorldProps){
  const canvas=useRef<HTMLCanvasElement>(null),current=useRef(props);current.current=props;
  const drag=useRef<{id:number;x:number;y:number}|null>(null),fallbackAim=useRef<Target|null>(null);
  const[fallback,setFallback]=useState(false);
- const position=props.positions[props.uid]||spawn(props.world,props.uid),island=position.island;
+ const position=props.positions[props.uid]||spawn(props.world,props.uid),island=position.island,zone=position.zone||'surface';
  useEffect(()=>{
   const el=canvas.current!;let frame=0,last=-Infinity,lastAim=-Infinity,aimKey='',visible=true;
   let renderer:ReturnType<typeof createVoxelRenderer>|null=null;
@@ -23,22 +24,23 @@ export default function VoxelWorld(props:VoxelWorldProps){
    const width=Math.max(1,el.clientWidth),height=Math.max(1,el.clientHeight);if(el.width!==width||el.height!==height){el.width=width;el.height=height;}
    const scale=Math.min(width,height)/size,ox=(width-size*scale)/2,oy=(height-size*scale)/2;
    ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#bfdee3';ctx.fillRect(0,0,width,height);ctx.setTransform(scale,0,0,scale,ox,oy);
-   for(let z=0;z<size;z++)for(let x=0;x<size;x++){const h=heightAt(size,x,z);if(h<0)continue;ctx.fillStyle=h>1?'#94b689':'#b6ca9e';ctx.fillRect(x,z,1,1);}
+   for(let z=0;z<size;z++)for(let x=0;x<size;x++){const h=zone==='mine'?(mineLand(w,x,z)?1:-1):heightAt(size,x,z);if(h<0)continue;ctx.fillStyle=zone==='mine'?'#53636a':h>1?'#94b689':'#b6ca9e';ctx.fillRect(x,z,1,1);}
    const targets:Target[]=[];
-   for(const resource of Object.values(n.nodes)){if(resource.readyAt>Date.now())continue;ctx.fillStyle=w.config.goods[resource.good]?.color||'#899998';ctx.fillRect(resource.x+.08,resource.z+.08,.84,.84);targets.push({kind:'resource',island,id:resource.id,x:resource.x,y:resource.y,z:resource.z});}
-   for(const[kind,f]of Object.entries(facilities(size))){ctx.fillStyle='#b08b65';ctx.fillRect(f.x-.1,f.z-.1,1.2,1.2);targets.push({kind:kind as Target['kind'],island,x:f.x,y:heightAt(size,f.x,f.z),z:f.z});}
+   for(const resource of Object.values(n.nodes)){if((resource.zone||'surface')!==zone||resource.readyAt>Date.now())continue;ctx.fillStyle=w.config.goods[resource.good]?.color||'#899998';ctx.fillRect(resource.x+.08,resource.z+.08,.84,.84);targets.push({kind:'resource',island,zone,id:resource.id,x:resource.x,y:resource.y,z:resource.z});}
+   if(zone==='surface')for(const[kind,f]of Object.entries(facilities(size))){ctx.fillStyle='#b08b65';ctx.fillRect(f.x-.1,f.z-.1,1.2,1.2);targets.push({kind:kind as Target['kind'],island,x:f.x,y:heightAt(size,f.x,f.z),z:f.z});}
+   const portal=zone==='mine'?mineExit(w):mineEntrance(size);ctx.fillStyle='#e6c57f';ctx.fillRect(portal.x,portal.z,1,1);targets.push({...portal,y:zone==='mine'?mineFloor(w):heightAt(size,portal.x,portal.z),island,zone,kind:zone==='mine'?'mineExit':'mineEntrance'});
    const plot=plotOrigin(size),ps=w.stage>=3?(w.config.freePlot?.size||16):(w.config.plot?.size||5);ctx.strokeStyle='#fff5d4';ctx.lineWidth=.1;ctx.strokeRect(plot.x,plot.z,ps,ps);
    for(const v of Object.values(n.voxels)){ctx.fillStyle=w.config.goods[v.unit.good]?.color||'#c6bda1';ctx.fillRect(plot.x+v.x+.03,plot.z+v.z+.03,.94,.94);}
    const own=p.positions[p.uid]||spawn(w,p.uid);ctx.fillStyle='#3768a0';ctx.beginPath();ctx.arc(own.x+.5,own.z+.5,.42,0,Math.PI*2);ctx.fill();
    const aim=fallbackAim.current;if(aim){ctx.strokeStyle='#fff';ctx.lineWidth=.17;ctx.strokeRect(aim.x,aim.z,1,1);}
-   el.dataset.renderer='2d';el.dataset.view='top';el.dataset.aim=JSON.stringify(aim);el.dataset.targets=JSON.stringify(targets.map(t=>({target:t,screen:[(ox+(t.x+.5)*scale)/width,(oy+(t.z+.5)*scale)/height]})));return aim;
+   el.dataset.zone=zone;el.dataset.renderer='2d';el.dataset.view='top';el.dataset.aim=JSON.stringify(aim);el.dataset.targets=JSON.stringify(targets.map(t=>({target:t,screen:[(ox+(t.x+.5)*scale)/width,(oy+(t.z+.5)*scale)/height]})));return aim;
   }
   function draw(time:number){frame=requestAnimationFrame(draw);if(!visible||document.hidden||time-last<32)return;last=time;const target=renderer?renderer.draw(current.current,time):drawFallback();if(time-lastAim>75){lastAim=time;const next=JSON.stringify(target);if(next!==aimKey){aimKey=next;current.current.onAim(target);}}}
   frame=requestAnimationFrame(draw);
   return()=>{cancelAnimationFrame(frame);observer?.disconnect();el.removeEventListener('webglcontextlost',lost);renderer?.dispose();};
- },[island,props.world.config.size,props.world.stage,props.quality,fallback]);
+ },[island,zone,props.world.config.size,props.world.stage,props.quality,fallback]);
  return <div style={{position:'relative',width:'100%',height:'100%',minHeight:240,background:'#c3e2ec'}}>
-  <canvas key={fallback?'flat':`voxel-${island}-${props.quality||'normal'}-${props.world.stage}-${props.world.config.size}`} ref={canvas} className="voxel-world-canvas" role="img" aria-label={`${props.world.config.templates.find((t:any)=>t.id===island)?.name||island} ${fallback?'2D 지도':'1인칭 블록 세계'}`} style={{display:'block',width:'100%',height:'100%',touchAction:'none',cursor:'grab'}}
+  <canvas key={fallback?'flat-'+zone:`voxel-${island}-${zone}-${props.quality||'normal'}-${props.world.stage}-${props.world.config.size}`} ref={canvas} className="voxel-world-canvas" role="img" aria-label={`${props.world.config.templates.find((t:any)=>t.id===island)?.name||island} ${fallback?'2D 지도':'1인칭 블록 세계'}`} style={{display:'block',width:'100%',height:'100%',touchAction:'none',cursor:'grab'}}
    onPointerDown={e=>{
     if(fallback){const r=e.currentTarget.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height,targets=JSON.parse(e.currentTarget.dataset.targets||'[]') as {target:Target;screen:number[]}[];const match=targets.sort((a,b)=>Math.hypot(a.screen[0]-x,a.screen[1]-y)-Math.hypot(b.screen[0]-x,b.screen[1]-y))[0];fallbackAim.current=match&&Math.hypot(match.screen[0]-x,match.screen[1]-y)<.065?match.target:null;return;}
     if(drag.current||e.button!==0||props.view&&props.view!=='first')return;drag.current={id:e.pointerId,x:e.clientX,y:e.clientY};e.currentTarget.setPointerCapture(e.pointerId);
@@ -89,7 +91,7 @@ export function VoxelPreview({voxels,origin=false,config,view='3d'}:VoxelPreview
   <div className="voxel-origin-detail" aria-live="polite" style={{padding:'10px 12px',background:'#f0f4e8',color:'#42614f',borderRadius:10,fontSize:13,marginTop:8}}>
    {selectedVoxel?<><strong>{config.goods?.[selectedVoxel.unit.good]?.name||selectedVoxel.unit.good} · ({selectedVoxel.x+1}, {selectedVoxel.y+1}, {selectedVoxel.z+1})칸</strong>
     <div style={{marginTop:5}}>원산지: {Object.entries(selectedVoxel.unit.sources||{}).map(([id,goods])=>`${countryName(id)} (${Object.entries(goods).map(([good,count])=>`${config.goods?.[good]?.name||good} ${Number(count.toFixed(2))}`).join(', ')})`).join(' · ')||'기록 없음'}</div>
-    <div style={{marginTop:3}}>가공 나라: {selectedVoxel.unit.processor?countryName(selectedVoxel.unit.processor):config.goods?.[selectedVoxel.unit.good]?.raw?'가공하지 않은 원료':'기록 없음'}</div></>:<span>블록을 누르면 원산지와 가공한 나라를 볼 수 있어요. {view==='3d'?'드래그하면 건축물이 돌아가요.':''}</span>}
+    <div style={{marginTop:3}}>가공 나라: {selectedVoxel.unit.processor?countryName(selectedVoxel.unit.processor):config.goods?.[selectedVoxel.unit.good]?.raw?'가공하지 않은 원료':'기록 없음'}</div>{selectedVoxel.unit.processes?.length>0&&<div>가공 이력: {selectedVoxel.unit.processes.map(v=>`${countryName(v.nation)} · ${config.goods[v.good]?.name||v.good}`).join(' → ')}</div>}</>:<span>블록을 누르면 원산지와 가공한 나라를 볼 수 있어요. {view==='3d'?'드래그하면 건축물이 돌아가요.':''}</span>}
   </div>
   <details style={{fontSize:12,marginTop:6}}><summary style={{cursor:'pointer',minHeight:36}}>블록 목록으로 확인</summary><select aria-label="원산지를 확인할 블록" value={selectedId||''} onChange={e=>setSelectedId(e.target.value||null)} style={{width:'100%',minHeight:44,padding:8,border:'1px solid #c5d2bd',borderRadius:8}}><option value="">블록 선택</option>{Object.entries(voxels).map(([id,v])=><option key={id} value={id}>{config.goods?.[v.unit.good]?.name||v.unit.good} · ({v.x+1}, {v.y+1}, {v.z+1})칸</option>)}</select></details>
  </div>;

@@ -493,7 +493,8 @@ globalThis.NATIONLAB_CONFIG = {
 /* 샌드박스 수업: 아래 숫자와 나라·설계도를 교사가 조절할 수 있습니다. */
 globalThis.NATIONLAB_CONFIG.experience = "sandbox";
 globalThis.NATIONLAB_CONFIG.sandbox = {
-  size: 64, height: 32, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
+  size: 64, height: 32,
+  mine:{floor:-8,ceiling:-2,margin:8,stone:24}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
   stamina: {max: 24, intervalSeconds: 60, refill: 3}, resourceSeconds: 180,
   plot: {size: 5, height: 4}, freePlot: {size:16,height:16},
@@ -504,16 +505,18 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   goods: {
     wood:{name:"나무",color:"#967043",raw:true},stone:{name:"돌",color:"#8898a1",raw:true},
     cotton:{name:"목화",color:"#eee3d4",raw:true},iron:{name:"철광석",color:"#ac7353",raw:true,tool:"pickaxe"},
-    oil:{name:"석유",color:"#494352",raw:true},sand:{name:"모래",color:"#dec17f",raw:true},
+    oil:{name:"원유",color:"#494352",raw:true},sand:{name:"모래",color:"#dec17f",raw:true},
     clay:{name:"점토",color:"#b77763",raw:true},copper:{name:"구리",color:"#be8d54",raw:true,tool:"pickaxe"},
+    fuel:{name:"정제 연료",color:"#e2ac44"},
     plank:{name:"판자",color:"#cda476"},masonry:{name:"석재",color:"#9baaad"},cloth:{name:"천",color:"#b3bedc"},
     brick:{name:"붉은 벽돌",color:"#bf6951"},plate:{name:"철판",color:"#b7c7cf"},glass:{name:"유리",color:"#85d9d2"},copperplate:{name:"구리판",color:"#dc9e68"}
   },
-  technologies:{weaving:"직조",kiln:"가마",steel:"제철",glass:"유리",metal:"금속 세공"},
+  technologies:{weaving:"직조",kiln:"가마",steel:"제철",glass:"유리",metal:"금속 세공",refining:"원유 정제"},
   recipes:{
     plank:{inputs:{wood:1},output:2},masonry:{inputs:{stone:1},output:1},
     cloth:{inputs:{cotton:2},output:1,technology:"weaving"},brick:{inputs:{clay:2},output:1,technology:"kiln"},
-    plate:{inputs:{iron:2,oil:1},output:1,technology:"steel"},glass:{inputs:{sand:2,oil:1},output:1,technology:"glass"},
+    fuel:{inputs:{oil:2},output:2,technology:"refining"},
+    plate:{inputs:{iron:2,fuel:1},output:1,technology:"steel"},glass:{inputs:{sand:2,fuel:1},output:1,technology:"glass"},
     copperplate:{inputs:{copper:2},output:1,technology:"metal"}
   },
   templates:[
@@ -522,7 +525,7 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     {id:"hinomi",name:"히노미 섬나라",short:"히노미",color:"#8ab7a8",biome:"숲",weight:2,specialties:{clay:8},technologies:["steel","glass"]},
     {id:"beloa",name:"벨로아 연합",short:"벨로아",color:"#ac9bbd",biome:"언덕",weight:3,specialties:{copper:8},technologies:["metal","weaving"]},
     {id:"sahar",name:"사하르 왕국",short:"사하르",color:"#d1b266",biome:"사막",weight:3,specialties:{oil:16,sand:18},technologies:[]},
-    {id:"lumina",name:"루미나 연방",short:"루미나",color:"#90aacb",biome:"광산",weight:2,specialties:{iron:12,copper:12},technologies:[]}
+    {id:"lumina",name:"루미나 연방",short:"루미나",color:"#90aacb",biome:"광산",weight:2,specialties:{iron:12,copper:12},technologies:["refining"]}
   ],
   commonResources:{wood:32,stone:28},
   blueprints:[

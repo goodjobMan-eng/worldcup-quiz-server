@@ -254,7 +254,7 @@
             ],
             "$uid": {
               ".write": "auth != null && auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('members').child(auth.uid).exists() && root.child('sandboxes').child($server).child($code).child('state').child('players').child(auth.uid).child('nation').val() !== '' && root.child('sandboxes').child($server).child($code).child('state').child('phase').val() === 'playing' && now < root.child('sandboxes').child($server).child($code).child('state').child('endsAt').val()",
-              ".validate": "newData.hasChildren(['island','x','y','z','at'])",
+              ".validate": "newData.hasChildren(['island','x','y','z','at']) && ((root.child('sandboxes').child($server).child($code).child('state/players').child($uid).child('zone').val() === 'mine' && newData.child('zone').val() === 'mine') || (root.child('sandboxes').child($server).child($code).child('state/players').child($uid).child('zone').val() !== 'mine' && (!newData.hasChild('zone') || newData.child('zone').val() === 'surface')))",
               "island": {
                 ".validate": "newData.isString() && newData.val() === root.child('sandboxes').child($server).child($code).child('state').child('players').child($uid).child('location').val()"
               },
@@ -262,7 +262,7 @@
                 ".validate": "newData.isNumber() && newData.val() <= now + 5000 && newData.val() >= now - 10000"
               },
               "y": {
-                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 32"
+                ".validate": "newData.isNumber() && newData.val() >= -32 && newData.val() <= 32"
               },
               "$other": {
                 ".validate": false
@@ -272,6 +272,9 @@
               },
               "z": {
                 ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
+              },
+              "zone": {
+                ".validate": "newData.isString() && (newData.val() === 'surface' || newData.val() === 'mine')"
               }
             }
           },
@@ -279,7 +282,7 @@
             "$uid": {
               "$id": {
                 ".write": "auth != null && ((auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('members').child(auth.uid).exists() && !data.exists() && newData.exists()) || (root.child('sandboxes').child($server).child($code).child('state/teacher').val() === auth.uid && auth.token.firebase.sign_in_provider === 'google.com' && !newData.exists()))",
-                ".validate": "newData.hasChildren(['id','type']) && newData.child('id').val() === $id && newData.child('type').isString() && newData.child('type').val().matches(/^(join|mine|tool|warehouse|craft|bridge|visit|return|tradeRequest|tradeEdit|tradeCancel|tradeConfirm|plan|place|remove|register|cheer|signal|reflect)$/)"
+                ".validate": "newData.hasChildren(['id','type']) && newData.child('id').val() === $id && newData.child('type').isString() && newData.child('type').val().matches(/^(join|enterMine|exitMine|mine|tool|warehouse|craft|bridge|visit|return|tradeRequest|tradeEdit|tradeCancel|tradeConfirm|plan|place|remove|register|cheer|signal|reflect)$/)"
               }
             }
           },
