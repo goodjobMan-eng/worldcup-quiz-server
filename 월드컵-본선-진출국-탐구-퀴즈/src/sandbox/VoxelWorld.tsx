@@ -1,4 +1,5 @@
 import {mineFloor,mineLand,mineEntrance,mineExit} from './terrain';
+import {animalPose,animalRoutes} from './animals';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -17,6 +18,7 @@ export default function VoxelWorld(props:VoxelWorldProps){
   let renderer:ReturnType<typeof createVoxelRenderer>|null=null;
   if(!fallback){try{renderer=createVoxelRenderer(el,current.current);}catch{setFallback(true);return;}}
   const ctx=fallback?el.getContext('2d'):null;
+  const fallbackAnimals=zone==='surface'?animalRoutes(current.current.world,island):[];
   const observer=typeof IntersectionObserver!=='undefined'?new IntersectionObserver(entries=>{visible=entries[0]?.isIntersecting??true;}):null;observer?.observe(el);
   const lost=(e:Event)=>{e.preventDefault();setFallback(true);};el.addEventListener('webglcontextlost',lost);
   function drawFallback(){
@@ -31,9 +33,10 @@ export default function VoxelWorld(props:VoxelWorldProps){
    const portal=zone==='mine'?mineExit(w):mineEntrance(size);ctx.fillStyle='#e6c57f';ctx.fillRect(portal.x,portal.z,1,1);targets.push({...portal,y:zone==='mine'?mineFloor(w):heightAt(size,portal.x,portal.z),island,zone,kind:zone==='mine'?'mineExit':'mineEntrance'});
    const plot=plotOrigin(size),ps=w.stage>=3?(w.config.freePlot?.size||16):(w.config.plot?.size||5);ctx.strokeStyle='#fff5d4';ctx.lineWidth=.1;ctx.strokeRect(plot.x,plot.z,ps,ps);
    for(const v of Object.values(n.voxels)){ctx.fillStyle=w.config.goods[v.unit.good]?.color||'#c6bda1';ctx.fillRect(plot.x+v.x+.03,plot.z+v.z+.03,.94,.94);}
+   const animalPositions=fallbackAnimals.map(route=>{const pose=animalPose(w,route,p.timeNow?.()??Date.now());ctx.fillStyle=route.kind==='frog'?'#79a95d':route.kind==='camel'?'#caa16a':route.kind==='deer'?'#a87a50':'#e7dfcb';ctx.beginPath();ctx.arc(pose.x+.5,pose.z+.5,.42,0,Math.PI*2);ctx.fill();ctx.fillStyle='#31443c';ctx.font='1.1px sans-serif';ctx.textAlign='center';ctx.fillText(route.name,pose.x+.5,pose.z-.15);return{name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))};});
    const own=p.positions[p.uid]||spawn(w,p.uid);ctx.fillStyle='#3768a0';ctx.beginPath();ctx.arc(own.x+.5,own.z+.5,.42,0,Math.PI*2);ctx.fill();
    const aim=fallbackAim.current;if(aim){ctx.strokeStyle='#fff';ctx.lineWidth=.17;ctx.strokeRect(aim.x,aim.z,1,1);}
-   el.dataset.zone=zone;el.dataset.renderer='2d';el.dataset.view='top';el.dataset.aim=JSON.stringify(aim);el.dataset.targets=JSON.stringify(targets.map(t=>({target:t,screen:[(ox+(t.x+.5)*scale)/width,(oy+(t.z+.5)*scale)/height]})));return aim;
+   el.dataset.zone=zone;el.dataset.renderer='2d';el.dataset.view='top';el.dataset.aim=JSON.stringify(aim);el.dataset.animals=JSON.stringify(animalPositions);el.dataset.targets=JSON.stringify(targets.map(t=>({target:t,screen:[(ox+(t.x+.5)*scale)/width,(oy+(t.z+.5)*scale)/height]})));return aim;
   }
   function draw(time:number){frame=requestAnimationFrame(draw);if(!visible||document.hidden||time-last<32)return;last=time;const target=renderer?renderer.draw(current.current,time):drawFallback();if(time-lastAim>75){lastAim=time;const next=JSON.stringify(target);if(next!==aimKey){aimKey=next;current.current.onAim(target);}}}
   frame=requestAnimationFrame(draw);

@@ -495,6 +495,11 @@ globalThis.NATIONLAB_CONFIG.experience = "sandbox";
 globalThis.NATIONLAB_CONFIG.sandbox = {
   size: 96, height: 32,
   mine:{floor:-8,ceiling:-2,margin:8,stone:24}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
+  animals:{
+    hualian:{kind:"sheep",name:"양",count:5},indra:{kind:"frog",name:"개구리",count:4},
+    hinomi:{kind:"deer",name:"사슴",count:4},beloa:{kind:"rabbit",name:"토끼",count:4},
+    sahar:{kind:"camel",name:"낙타",count:4},lumina:{kind:"goat",name:"염소",count:4}
+  },
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
   stamina: {max: 24, intervalSeconds: 60, refill: 3}, resourceSeconds: 180,
   plot: {size: 5, height: 4}, freePlot: {size:16,height:16},
@@ -538,6 +543,6 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   reflections:{
     1:["다리가 없을 때 우리 나라는 무엇이 불편했나요?","다리가 생긴 뒤 무엇이 달라졌나요?"],
     2:["우리 랜드마크에 들어간 다른 나라의 것은 무엇인가요?","그 거래는 두 나라 모두에게 이익이었나요?"],
-    3:["다른 반과 교역하며 우리가 얻은 것과 준 것은 무엇인가요?","무역이 없다면 우리 섬은 어땠을까요?"]
+    3:["다른 나라 모둠과 교역하며 우리가 얻은 것과 준 것은 무엇인가요?","무역이 없다면 우리 섬은 어땠을까요?"]
   }
 };

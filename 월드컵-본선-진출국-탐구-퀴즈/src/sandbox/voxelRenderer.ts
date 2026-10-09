@@ -1,9 +1,10 @@
 import {mineEntrance,mineExit,mineFloor,mineLand,minePillar} from './terrain';
+import {animalPose,animalRoutes,type AnimalKind} from './animals';
 import * as THREE from 'three';
 import { bridgeStation, facilities, heightAt, land, plotOrigin, spawn } from './terrain';
 import type { Pos, SandboxWorld, Target, Voxel } from './types';
 
-export type WorldView = {world:SandboxWorld;positions:Record<string,Pos>;uid:string;yaw:number;pitch:number;mining?:boolean;jump?:number;quality?:'low'|'normal';view?:'first'|'top'|'front'|'side';origin?:boolean};
+export type WorldView = {world:SandboxWorld;positions:Record<string,Pos>;uid:string;yaw:number;pitch:number;timeNow?:()=>number;mining?:boolean;jump?:number;quality?:'low'|'normal';view?:'first'|'top'|'front'|'side';origin?:boolean};
 export type Block = {x:number;y:number;z:number;color:string;target?:Target;colors?:string[]};
 const faces = [
  {n:[1,0,0],c:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]],shade:.78},
@@ -89,7 +90,7 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  const waterMaterial=new THREE.MeshBasicMaterial({color:'#91c8d5'});materials.add(waterMaterial);const ocean=new THREE.Mesh(cube,waterMaterial);ocean.position.set(size/2,-.62,size/2);ocean.scale.set(size*9,.08,size*9);scene.add(ocean);ocean.visible=!underground;
  const foam=new THREE.Group();scene.add(foam);foam.visible=!underground;for(let i=0;i<40;i++){const x=noise(i,21)*(size+25)-12,z=noise(i,43)*(size+25)-12;if(!land(size,Math.floor(x),Math.floor(z)))box(foam,'#d6eeec',x,-.56,z,.7+noise(i,12)*1.5,.025,.14);}
  const clouds=new THREE.Group();scene.add(clouds);for(let i=0;i<(low?8:18);i++){const x=noise(i,51)*size*5-size*2,z=noise(i,69)*size*5-size*2;box(clouds,'#f5f5e7',x,18+noise(i,67)*7,z,7+noise(i,61)*12,1.3,4+noise(i,85)*6);}
- // The two adjacent nations use coarse land silhouettes; active terrain is the only detailed 64x64 mesh.
+ // Adjacent nations use coarse land silhouettes; only the active island has detailed terrain.
  const neighboring=Object.values(initial.world.bridges).filter(b=>b.a===island||b.b===island);
  if(!underground)neighboring.forEach(b=>{
   const right=b.a===island,other=right?b.b:b.a,otherSpec=initial.world.config.templates.find((t:any)=>t.id===other),offset=right?size+25:-(size+25);
@@ -113,6 +114,37 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  // Static meshes share a palette and become instanced draw calls.
  function batch(group:THREE.Group){const groups=new Map<string,THREE.Mesh[]>();for(const o of group.children){if(o instanceof THREE.Mesh&&o.geometry===cube){const k=(o.material as THREE.Material).uuid,list=groups.get(k)||[];list.push(o);groups.set(k,list);}}for(const list of groups.values()){if(list.length<2)continue;const m=new THREE.InstancedMesh(cube,list[0].material,list.length);list.forEach((o,i)=>{o.updateMatrix();m.setMatrixAt(i,o.matrix);group.remove(o);});group.add(m);}}
  batch(foam);batch(clouds);batch(decorative);
+ const animalGroup=new THREE.Group();scene.add(animalGroup);
+ const creatureRoutes=underground?[]:animalRoutes(initial.world,island),creatures=new Map<string,THREE.Group>();
+ function animalModel(kind:AnimalKind){
+  const g=new THREE.Group(),part=(color:string,x:number,y:number,z:number,sx:number,sy:number,sz:number)=>box(g,color,x,y,z,sx,sy,sz);
+  const legs=(color:string,wide:number,long:number,h:number)=>{for(const x of[-wide,wide])for(const z of[-long,long])part(color,x,h/2,z,.18,h,.18);};
+  if(kind==='sheep'){
+   legs('#524d49',.35,.42,.57);part('#e9e8d9',0,.96,0,1.18,.91,1.35);part('#f7f4e8',0,1.24,0,1.3,.48,1.15);
+   part('#77716d',0,1.04,.78,.55,.56,.56);part('#554f4e',0,1.13,1.075,.32,.26,.07);
+   for(const x of[-.19,.19])part('#202a30',x,1.22,1.075,.075,.075,.04);
+  }else if(kind==='camel'){
+   legs('#a67b4b',.38,.53,1.06);part('#caa16a',0,1.36,0,1.22,.7,1.55);part('#b78b56',0,1.88,-.25,.68,.62,.56);
+   part('#caa16a',0,1.82,.68,.42,1.08,.43);part('#caa16a',0,2.29,.94,.55,.38,.68);
+   for(const x of[-.18,.18]){part('#836143',x,2.47,.8,.09,.22,.1);part('#27313b',x,2.36,1.29,.07,.07,.035);}
+  }else if(kind==='deer'){
+   legs('#8d6848',.28,.43,.88);part('#a87a50',0,1.07,0,.9,.58,1.27);part('#c8ae87',0,.9,.68,.5,.32,.43);
+   part('#a87a50',0,1.49,.49,.4,.73,.42);part('#a87a50',0,1.75,.72,.52,.42,.6);
+   for(const x of[-.19,.19]){part('#342e28',x,1.8,1.035,.065,.065,.04);part('#c7b18e',x,2.18,.55,.1,.63,.1);part('#c7b18e',x*1.65,2.4,.55,.36,.09,.09);}
+  }else if(kind==='goat'){
+   legs('#777d79',.31,.41,.69);part('#e1d8bf',0,.99,0,1.05,.7,1.26);part('#e8e0cc',0,1.2,.7,.56,.59,.57);
+   part('#9a9588',0,.85,1.01,.25,.36,.19);for(const x of[-.2,.2]){part('#c2baa5',x,1.66,.58,.12,.44,.13);part('#242c32',x,1.27,1.01,.07,.07,.035);}
+  }else if(kind==='rabbit'){
+   part('#a28768',0,.32,0,.65,.49,.9);part('#b59b79',0,.51,.48,.54,.43,.5);part('#eee4d4',0,.34,-.5,.31,.32,.29);
+   for(const x of[-.16,.16]){part('#a28768',x,.94,.38,.17,.67,.18);part('#d4a59d',x,.98,.48,.08,.42,.03);part('#28313a',x,.57,.76,.06,.06,.035);}
+  }else{
+   for(const x of[-.32,.32])for(const z of[-.26,.26])part('#729e58',x,.22,z,.23,.31,.24);
+   part('#7fac65',0,.35,0,.91,.43,.77);part('#89b875',0,.58,.34,.76,.29,.53);
+   for(const x of[-.23,.23]){part('#e9ead4',x,.78,.58,.22,.24,.21);part('#263637',x,.8,.71,.09,.11,.04);}
+  }
+  batch(g);return g;
+ }
+ for(const route of creatureRoutes){const g=animalModel(route.kind);g.userData.animal=route.name;animalGroup.add(g);creatures.set(route.id,g);textLabel(g,route.name,0,route.kind==='camel'?2.9:route.kind==='deer'?2.7:route.kind==='rabbit'||route.kind==='frog'?1.45:2.05,0,'#405a4b',.34);}
  function batchResources(group:THREE.Group){
   group.updateMatrixWorld(true);const groups=new Map<string,{mesh:THREE.Mesh;target:Target}[]>();
   group.children.forEach(root=>root.traverse(o=>{if(o instanceof THREE.Mesh){const k=(o.material as THREE.Material).uuid,list=groups.get(k)||[];list.push({mesh:o,target:root.userData.target});groups.set(k,list);}}));
@@ -196,7 +228,8 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  return {
   draw(view:WorldView,time:number){
    if(disposed)return null;latest=view;resize();const w=view.world,nation=w.nations[island];if(!nation)return null;const dt=Math.min(.1,(time-lastTime)/1000||.033);lastTime=time;
-   const now=Date.now(),activeNodes=Object.values(nation.nodes).filter(n=>(n.zone||'surface')===zone&&n.readyAt<=now),ns=JSON.stringify(activeNodes);
+   const now=view.timeNow?.()??Date.now(),activeNodes=Object.values(nation.nodes).filter(n=>(n.zone||'surface')===zone&&n.readyAt<=now),ns=JSON.stringify(activeNodes);
+   const animalPositions=creatureRoutes.map(route=>{const pose=animalPose(w,route,now),g=creatures.get(route.id)!;g.position.set(pose.x+.5,pose.y+pose.bob,pose.z+.5);g.rotation.y=pose.heading;return{name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))};});
    if(ns!==nodeSignature){clear(resources);nodeGroups.clear();activeNodes.forEach(node);batchResources(resources);nodeSignature=ns;}
    const vs=JSON.stringify(nation.voxels)+view.origin;
    if(!underground&&vs!==voxelSignature){clear(structure);const blocks=voxelBlocks(nation.voxels,w.config,view.origin,{x:plot.x,y:1,z:plot.z},island),set=new Set(blocks.map(b=>key(b.x,b.y,b.z)));if(blocks.length)structure.add(new THREE.Mesh(geo(blockGeometry(blocks,(x,y,z)=>set.has(key(x,y,z)))),vertexMaterial));voxelSignature=vs;}
@@ -211,7 +244,7 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
    held.rotation.x=view.mining?-.45+Math.sin(time*.023)*.65:-.1;held.rotation.z=view.mining?-.22+Math.sin(time*.023)*.17:-.22;held.position.y=-.35+Math.sin(time*.003)*.006;
    renderer.render(scene,activeCamera);aim=pick();selection.visible=!!aim&&!overview;
    if(aim){const h=aim.kind==='resource'?1:1;selection.box.min.set(aim.x-.015,aim.y-.015,aim.z-.015);selection.box.max.set(aim.x+1.015,aim.y+h+.015,aim.z+1.015);selection.updateMatrixWorld();}
-   canvas.dataset.zone=zone;canvas.dataset.renderer='webgl';canvas.dataset.view=mode;canvas.dataset.aim=JSON.stringify(aim);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);return aim;
+   canvas.dataset.zone=zone;canvas.dataset.renderer='webgl';canvas.dataset.view=mode;canvas.dataset.aim=JSON.stringify(aim);canvas.dataset.animals=JSON.stringify(animalPositions);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);return aim;
   },
   dispose(){disposed=true;scene.traverse(o=>{if(o instanceof THREE.InstancedMesh)o.dispose();});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());renderer.dispose();if(!canvas.isConnected)renderer.forceContextLoss();}
  };
