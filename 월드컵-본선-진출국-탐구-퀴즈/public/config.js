@@ -496,10 +496,13 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   size: 96, height: 32,
   mine:{floor:-8,ceiling:-2,margin:8,stone:24}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
   animals:{
-    hualian:{kind:"sheep",name:"양",count:5},indra:{kind:"frog",name:"개구리",count:4},
-    hinomi:{kind:"deer",name:"사슴",count:4},beloa:{kind:"rabbit",name:"토끼",count:4},
-    sahar:{kind:"camel",name:"낙타",count:4},lumina:{kind:"goat",name:"염소",count:4}
+    hualian:{kind:"sheep",name:"양",count:5,loot:{wool:1}},indra:{kind:"frog",name:"개구리",count:4,loot:{}},
+    hinomi:{kind:"deer",name:"사슴",count:4,loot:{meat:1}},beloa:{kind:"rabbit",name:"토끼",count:4,loot:{meat:1}},
+    sahar:{kind:"camel",name:"낙타",count:4,loot:{wool:1}},lumina:{kind:"goat",name:"염소",count:4,loot:{meat:1}}
   },
+  animalRespawnSeconds:180,
+  farm:{size:4,growSeconds:90,harvestAmount:2,starterCrops:4},
+  hotbar:["wood","stone","riceSeed","wheatSeed","rice","wheat","wool","meat","plank"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
   stamina: {max: 24, intervalSeconds: 60, refill: 3}, resourceSeconds: 180,
   plot: {size: 5, height: 4}, freePlot: {size:16,height:16},
@@ -513,6 +516,10 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     oil:{name:"원유",color:"#494352",raw:true},sand:{name:"모래",color:"#dec17f",raw:true},
     clay:{name:"점토",color:"#b77763",raw:true},copper:{name:"구리",color:"#be8d54",raw:true,tool:"pickaxe"},
     fuel:{name:"정제 연료",color:"#e2ac44"},
+    riceSeed:{name:"벼 씨앗",color:"#b6a45d",raw:true,placeable:false},wheatSeed:{name:"밀 씨앗",color:"#c7ad62",raw:true,placeable:false},
+    rice:{name:"쌀",color:"#eee0ab",raw:true,placeable:false},wheat:{name:"밀",color:"#d8bc77",raw:true,placeable:false},
+    wool:{name:"양털",color:"#e8e5d9",raw:true,placeable:false},meat:{name:"고기",color:"#b77367",raw:true,placeable:false},
+    riceBall:{name:"주먹밥",color:"#f5edcf",food:6,placeable:false},bread:{name:"빵",color:"#c69150",food:6,placeable:false},cookedMeat:{name:"구운 고기",color:"#9c5745",food:6,placeable:false},
     plank:{name:"판자",color:"#cda476"},masonry:{name:"석재",color:"#9baaad"},cloth:{name:"천",color:"#b3bedc"},
     brick:{name:"붉은 벽돌",color:"#bf6951"},plate:{name:"철판",color:"#b7c7cf"},glass:{name:"유리",color:"#85d9d2"},copperplate:{name:"구리판",color:"#dc9e68"}
   },
@@ -522,7 +529,8 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     cloth:{inputs:{cotton:2},output:1,technology:"weaving"},brick:{inputs:{clay:2},output:1,technology:"kiln"},
     fuel:{inputs:{oil:2},output:2,technology:"refining"},
     plate:{inputs:{iron:2,fuel:1},output:1,technology:"steel"},glass:{inputs:{sand:2,fuel:1},output:1,technology:"glass"},
-    copperplate:{inputs:{copper:2},output:1,technology:"metal"}
+    copperplate:{inputs:{copper:2},output:1,technology:"metal"},
+    riceBall:{inputs:{rice:2},output:1},bread:{inputs:{wheat:2},output:1},cookedMeat:{inputs:{meat:1,wood:1},output:1}
   },
   templates:[
     {id:"hualian",name:"화련 연방",short:"화련",color:"#db9568",biome:"평원",weight:5,specialties:{iron:12,cotton:14},technologies:["weaving"]},

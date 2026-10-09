@@ -1,8 +1,9 @@
 import type {SandboxWorld} from './types';
 import {mineLand,minePillar,mineExit,mineFloor} from './terrain';
+import {farmCells,farmKey} from './farming';
 /** Upgrade saved prototype rooms once, retaining inventories, receipts and resource cooldowns. */
 export function upgradeFeatures(w:SandboxWorld){
- if((w.featuresVersion||0)>=2)return;
+ if((w.featuresVersion||0)<2){
  const c=w.config;
  c.mine||={floor:-8,ceiling:-2,margin:8,stone:24};
  c.goods.oil.name='원유';
@@ -22,4 +23,23 @@ export function upgradeFeatures(w:SandboxWorld){
   }
  }
  w.featuresVersion=2;
+ }
+ if((w.featuresVersion||0)<3){
+  const current=(globalThis as any).NATIONLAB_CONFIG?.sandbox;
+  if(current){
+   for(const [good,spec] of Object.entries(current.goods))w.config.goods[good]||=structuredClone(spec);
+   for(const [good,recipe] of Object.entries(current.recipes))w.config.recipes[good]||=structuredClone(recipe);
+   w.config.farm||=structuredClone(current.farm);
+   w.config.hotbar||=structuredClone(current.hotbar);
+   w.config.animalRespawnSeconds||=current.animalRespawnSeconds;
+   w.config.animals||={};for(const [nation,spec] of Object.entries(current.animals)){w.config.animals[nation]||=structuredClone(spec);w.config.animals[nation].loot||=structuredClone((spec as any).loot);}
+  }
+  for(const n of Object.values(w.nations)){
+   n.wildlife||={};
+   if(!n.crops){n.crops={};const cells=farmCells(w),count=Math.min(cells.length,w.config.farm?.starterCrops||4);
+    for(let i=0;i<count;i++){const {x,z}=cells[i];n.crops[farmKey(x,z)]={good:i%2?'wheat':'rice',plantedAt:0,by:'starter'};}
+   }
+  }
+  w.featuresVersion=3;
+ }
 }

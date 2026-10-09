@@ -1,5 +1,6 @@
 import {bridgeStation,facilities,heightAt,land,mineEntrance,plotOrigin} from './terrain';
 import type {SandboxWorld} from './types';
+import {farmCells} from './farming';
 
 export type AnimalKind='sheep'|'deer'|'camel'|'goat'|'rabbit'|'frog';
 export type AnimalRoute={id:string;kind:AnimalKind;name:string;cx:number;cz:number;radius:number;phase:number;speed:number};
@@ -14,8 +15,8 @@ export function animalRoutes(w:SandboxWorld,island:string):AnimalRoute[]{
  const places=[{x:size*.49-6,z:size*.76-6},{x:size*.25,z:size*.49},{x:size*.78,z:size*.26},{x:size*.34,z:size*.33},{x:size*.62,z:size*.7},{x:size*.42,z:size*.18},{x:size*.75,z:size*.75}];
  const plot=plotOrigin(size),plotSize=w.config.freePlot?.size||16,stations=Object.values(facilities(size)),entrance=mineEntrance(size);
  const bridgeSites=Object.values(w.bridges).filter(b=>b.a===island||b.b===island).map(b=>bridgeStation(w,island,b.id));
- const nodes=Object.values(w.nations[island].nodes).filter(n=>(n.zone||'surface')==='surface');
- const blocked=(x:number,z:number)=>!land(size,x,z)||nodes.some(n=>n.x===x&&n.z===z)||stations.some(s=>Math.hypot(x-s.x,z-s.z)<2.5)||bridgeSites.some(s=>Math.hypot(x-s.x,z-s.z)<3)||Math.hypot(x-entrance.x,z-entrance.z)<4||(x>=plot.x-3&&x<plot.x+plotSize+3&&z>=plot.z-3&&z<plot.z+plotSize+3);
+ const nodes=Object.values(w.nations[island].nodes).filter(n=>(n.zone||'surface')==='surface'),farm=farmCells(w);
+ const blocked=(x:number,z:number)=>!land(size,x,z)||farm.some(c=>c.x===x&&c.z===z)||nodes.some(n=>n.x===x&&n.z===z)||stations.some(s=>Math.hypot(x-s.x,z-s.z)<2.5)||bridgeSites.some(s=>Math.hypot(x-s.x,z-s.z)<3)||Math.hypot(x-entrance.x,z-entrance.z)<4||(x>=plot.x-3&&x<plot.x+plotSize+3&&z>=plot.z-3&&z<plot.z+plotSize+3);
  const safe=(x:number,z:number,radius:number)=>{
   const center=heightAt(size,x,z);if(center<1)return false;
   for(let dz=-radius;dz<=radius;dz++)for(let dx=-radius;dx<=radius;dx++)if(blocked(x+dx,z+dz)||Math.abs(heightAt(size,x+dx,z+dz)-center)>1)return false;
