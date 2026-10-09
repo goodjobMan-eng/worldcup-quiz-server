@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /classroomLandmarks/{teacher}/rooms/{room} {
+      function owner() { return request.auth != null && request.auth.uid == teacher && request.auth.token.firebase.sign_in_provider == 'google.com'; }
+      allow read: if request.auth != null && (request.auth.uid == teacher || resource.data.members.get(request.auth.uid, false) == true);
+      allow create, update: if owner() && request.resource.data.keys().hasOnly(['teacher','school','className','members','landmarks']) && request.resource.data.teacher == teacher && request.resource.data.school is string && request.resource.data.school.size() <= 40 && request.resource.data.className is string && request.resource.data.className.size() <= 24 && request.resource.data.members is map && request.resource.data.members.size() <= 41 && request.resource.data.landmarks is map && request.resource.data.landmarks.size() <= 6;
+      allow delete: if owner();
+    }
+  }
+}

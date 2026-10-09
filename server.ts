@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import { existsSync } from "node:fs";
 import { createServer as createViteServer } from "vite";
 
 interface Student {
@@ -39,18 +40,27 @@ function getOrCreateRoom(roomCode: string): Room {
 
 async function startServer() {
   const app = express();
-  
+  const frontend = existsSync(path.join(process.cwd(), "index.html"))
+    ? process.cwd()
+    : path.join(process.cwd(), "월드컵-본선-진출국-탐구-퀴즈");
+
   // 렌더 서버 배정 포트 수용 (포트 바인딩 에러 완전 해결)
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
   app.use(express.json());
 
   // CORS 자물쇠 해제 미들웨어 (구글 AI 스튜디오 통신 전면 허용)
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-    
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With",
+    );
+
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
       return;
@@ -134,9 +144,9 @@ async function startServer() {
 
     // 통과했다면 이제 이 퀴즈 문항을 해결했다고 낙인 찍기
     student.lastAnsweredQuestionIndex = room.currentQuestionIndex;
-    
+
     // 점수 누적 가산 처리
-    student.score += (score || 0);
+    student.score += score || 0;
     student.solvedCount += 1;
     student.lastAnswerCorrect = isCorrect;
     student.lastAnsweredAt = answeredAt;
@@ -147,12 +157,14 @@ async function startServer() {
   // 방 전체 상태 업데이트
   app.post("/api/room/:roomCode/update", (req, res) => {
     const { roomCode } = req.params;
-    const { gameState, currentQuestionIndex, timeLeft, timerActive, students } = req.body;
+    const { gameState, currentQuestionIndex, timeLeft, timerActive, students } =
+      req.body;
 
     const room = getOrCreateRoom(roomCode);
 
     if (gameState !== undefined) room.gameState = gameState;
-    if (currentQuestionIndex !== undefined) room.currentQuestionIndex = currentQuestionIndex;
+    if (currentQuestionIndex !== undefined)
+      room.currentQuestionIndex = currentQuestionIndex;
     if (timeLeft !== undefined) room.timeLeft = timeLeft;
     if (timerActive !== undefined) room.timerActive = timerActive;
     if (students !== undefined) room.students = students;
@@ -178,12 +190,13 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
+      root: frontend,
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(frontend, "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -191,7 +204,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Server] Live classroom quiz backend running on port ${PORT}`);
+    console.log(`[Server] Live classroom trade server running on port ${PORT}`);
   });
 }
 

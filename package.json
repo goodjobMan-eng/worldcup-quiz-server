@@ -1,35 +1,50 @@
 {
-  "name": "react-example",
+  "name": "nationlab",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
+    "dev": "npm --prefix 월드컵-본선-진출국-탐구-퀴즈 run dev",
+    "build": "npm --prefix 월드컵-본선-진출국-탐구-퀴즈 run build",
+    "start": "npm --prefix 월드컵-본선-진출국-탐구-퀴즈 run start",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "npm --prefix 월드컵-본선-진출국-탐구-퀴즈 run lint",
+    "test": "tsx --test tests/*.test.ts",
+    "simulate": "tsx scripts/sandbox-simulate.ts",
+    "test:browser": "node scripts/sandbox-browser.cjs",
+    "test:firebase": "tsx --test 월드컵-본선-진출국-탐구-퀴즈/tests/firebase.test.ts",
+    "test:auth": "node scripts/auth-smoke.mjs",
+    "test:servers": "node scripts/server-browser-test.cjs",
+    "test:live": "node scripts/sandbox-live.cjs",
+    "build:demo": "node scripts/build-demo.mjs",
+    "simulate:legacy": "tsx scripts/simulate.ts",
+    "test:sandbox:rules": "tsx --test 월드컵-본선-진출국-탐구-퀴즈/tests/sandbox-firebase.test.ts",
+    "test:sandbox:live": "node scripts/sandbox-live.cjs",
+    "test:sandbox:browser": "node scripts/sandbox-browser.cjs",
+    "test:browser:legacy": "node scripts/browser-test.cjs",
+    "test:live:legacy": "tsx 월드컵-본선-진출국-탐구-퀴즈/tests/live-browser.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
     "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3",
-    "express": "^4.21.2",
-    "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "playwright": "^1.64.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "vite": "^6.2.3"
   }
 }

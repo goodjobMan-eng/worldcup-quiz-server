@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.trade-data/
+.env
+.env.*
+
+.firebase/
+*-debug.log

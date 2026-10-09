@@ -1,20 +1,10 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# NATIONLAB 웹앱
 
-# Run and deploy your AI Studio app
+React·TypeScript·Three.js 정적 웹앱입니다. 실행과 Firebase 연결은 [저장소 README](../README.md)를 참고하세요.
 
-This contains everything you need to run your app locally.
+- `src/sandbox/`: 현재 4개국 다리·랜드마크 프로토타입
+- `public/config.js`: 교사가 조정하는 설정
+- `src/nationlab/`: 이전 3개국·6라운드 실험
+- `dist/`: `npm run build` 결과
 
-View your app in AI Studio: https://ai.studio/apps/69cea402-36f5-4b49-9591-c1b84f7f07d6
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+`npm ci`, `npm run dev`, `npm run lint`, `npm run build`로 개발합니다. 루트 `npm test`와 `npm run simulate`가 규칙을 검증합니다.

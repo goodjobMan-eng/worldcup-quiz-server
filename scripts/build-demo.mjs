@@ -1,0 +1,14 @@
+import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { build } from '../월드컵-본선-진출국-탐구-퀴즈/node_modules/esbuild/lib/main.js';
+const frontend = resolve('월드컵-본선-진출국-탐구-퀴즈');
+const output = resolve('/workspace/onboarding');
+await mkdir(output, {recursive: true});
+const bundled = await build({entryPoints:[frontend+'/src/main.tsx'],bundle:true,write:false,format:'iife',platform:'browser',minify:true,define:{'process.env.NODE_ENV':'"production"'},loader:{'.css':'empty'}});
+const cssFile=(await readdir(frontend+'/dist/assets')).find(f=>f.endsWith('.css'));
+const css=await readFile(frontend+'/dist/assets/'+cssFile,'utf8');
+const config=await readFile(frontend+'/public/config.js','utf8');
+const script=bundled.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
+const html=`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NATIONLAB 체험판</title><style>${css}</style></head><body><div id="root"></div><script>${config}\nglobalThis.NATIONLAB_CONFIG.firebase={};</script><script>${script}</script></body></html>`;
+await writeFile(output+'/NATIONLAB-체험하기.html',html);
+console.log('Standalone local-practice app: /workspace/onboarding/NATIONLAB-체험하기.html');

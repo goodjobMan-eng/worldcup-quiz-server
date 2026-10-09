@@ -1,0 +1,293 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$code": {
+        ".read": "auth != null && (!data.exists() || data.child('state/teacher').val() === auth.uid || data.child('members').child(auth.uid).exists())",
+        ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('state/teacher').val() === auth.uid && newData.child('state/code').val() === $code && $code.matches(/^[0-9]{4}$/)) || (data.child('state/teacher').val() === auth.uid && !newData.exists()))",
+        ".validate": "newData.hasChildren(['state', 'members']) && (!data.exists() || newData.child('state/teacher').val() === data.child('state/teacher').val())",
+        "state": {
+          ".write": "auth != null && data.child('teacher').val() === auth.uid && newData.exists()",
+          ".validate": "newData.hasChildren(['version', 'code', 'teacher', 'config', 'round', 'phase', 'phaseEnd', 'countries', 'revision']) && newData.child('teacher').isString() && newData.child('code').val() === $code && newData.child('version').val() === 2",
+          "teacher": {
+            ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+          },
+          "countries": {
+            "$country": {
+              "gold": {
+                ".validate": "newData.isNumber() && newData.val() >= 0"
+              }
+            }
+          }
+        },
+        "members": {
+          "$uid": {
+            ".read": "auth != null && (auth.uid === $uid || root.child('rooms').child($code).child('state/teacher').val() === auth.uid)",
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($code).child('state').exists() && ((!data.exists() && root.child('rooms').child($code).child('state/phase').val() === 'lobby') || (data.exists() && !newData.exists()))",
+            ".validate": "newData.hasChild('nickname') && newData.child('nickname').isString() && newData.child('nickname').val().length > 0 && newData.child('nickname').val().length <= 16",
+            "nickname": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "positions": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($code).child('members').child(auth.uid).exists() && root.child('rooms').child($code).child('state/players').child(auth.uid).exists() && root.child('rooms').child($code).child('state/players').child(auth.uid).child('country').val() !== '' && root.child('rooms').child($code).child('state/phase').val() === 'activity' && now < root.child('rooms').child($code).child('state/phaseEnd').val()",
+            ".validate": "newData.hasChildren(['x','y','at'])",
+            "x": {
+              ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('rooms').child($code).child('state/config/map/width').val() - 2"
+            },
+            "y": {
+              ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('rooms').child($code).child('state/config/map/height').val() - 2"
+            },
+            "at": {
+              ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "inbox": {
+          "$uid": {
+            "$id": {
+              ".write": "auth != null && ((auth.uid === $uid && root.child('rooms').child($code).child('members').child(auth.uid).exists() && !data.exists() && newData.exists()) || (auth.uid === root.child('rooms').child($code).child('state/teacher').val() && !newData.exists()))",
+              ".validate": "newData.hasChildren(['command','at']) && newData.child('at').isNumber() && newData.child('at').val() <= now + 5000 && newData.child('command/type').isString() && newData.child('command/type').val().matches(/^(join|mine|craft|build|offer|vote|cancelOffer|reflect)$/)",
+              "command": {
+                ".validate": "newData.hasChild('type')"
+              },
+              "at": {
+                ".validate": "newData.isNumber()"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "servers": {
+      "$server": {
+        "rooms": {
+          "$code": {
+            ".read": "auth != null && (!data.exists() || data.child('state/teacher').val() === auth.uid || data.child('members').child(auth.uid).exists())",
+            ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('state/teacher').val() === auth.uid && newData.child('state/code').val() === $code && $code.matches(/^[0-9]{4}$/)) || (data.child('state/teacher').val() === auth.uid && !newData.exists()))",
+            ".validate": "newData.hasChildren(['state', 'members']) && (!data.exists() || newData.child('state/teacher').val() === data.child('state/teacher').val())",
+            "state": {
+              ".write": "auth != null && data.child('teacher').val() === auth.uid && newData.exists()",
+              ".validate": "newData.hasChildren(['version', 'code', 'teacher', 'config', 'round', 'phase', 'phaseEnd', 'countries', 'revision']) && newData.child('teacher').isString() && newData.child('code').val() === $code && newData.child('version').val() === 2 && newData.child('classroom/serverId').val() === $server",
+              "teacher": {
+                ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+              },
+              "countries": {
+                "$country": {
+                  "gold": {
+                    ".validate": "newData.isNumber() && newData.val() >= 0"
+                  }
+                }
+              },
+              "classroom": {
+                ".validate": "newData.hasChildren(['regionId','serverId','district','school','className','buildingCountry']) && newData.child('serverId').val() === $server",
+                "regionId": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                },
+                "serverId": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                },
+                "district": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                },
+                "school": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                },
+                "className": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                },
+                "buildingCountry": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80 && (!data.exists() || newData.val() === data.val())"
+                }
+              }
+            },
+            "members": {
+              "$uid": {
+                ".read": "auth != null && (auth.uid === $uid || root.child('servers').child($server).child('rooms').child($code).child('state/teacher').val() === auth.uid)",
+                ".write": "auth != null && auth.uid === $uid && root.child('servers').child($server).child('rooms').child($code).child('state').exists() && ((!data.exists() && root.child('servers').child($server).child('rooms').child($code).child('state/phase').val() === 'lobby') || (data.exists() && !newData.exists()))",
+                ".validate": "newData.hasChild('nickname') && newData.child('nickname').isString() && newData.child('nickname').val().length > 0 && newData.child('nickname').val().length <= 16",
+                "nickname": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
+                },
+                "joinedAt": {
+                  ".validate": "newData.isNumber()"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            },
+            "positions": {
+              "$uid": {
+                ".write": "auth != null && auth.uid === $uid && root.child('servers').child($server).child('rooms').child($code).child('members').child(auth.uid).exists() && root.child('servers').child($server).child('rooms').child($code).child('state/players').child(auth.uid).exists() && root.child('servers').child($server).child('rooms').child($code).child('state/players').child(auth.uid).child('country').val() !== '' && root.child('servers').child($server).child('rooms').child($code).child('state/phase').val() === 'activity' && now < root.child('servers').child($server).child('rooms').child($code).child('state/phaseEnd').val()",
+                ".validate": "newData.hasChildren(['x','y','at'])",
+                "x": {
+                  ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('servers').child($server).child('rooms').child($code).child('state/config/map/width').val() - 2"
+                },
+                "y": {
+                  ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('servers').child($server).child('rooms').child($code).child('state/config/map/height').val() - 2"
+                },
+                "at": {
+                  ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            },
+            "inbox": {
+              "$uid": {
+                "$id": {
+                  ".write": "auth != null && ((auth.uid === $uid && root.child('servers').child($server).child('rooms').child($code).child('members').child(auth.uid).exists() && !data.exists() && newData.exists()) || (auth.uid === root.child('servers').child($server).child('rooms').child($code).child('state/teacher').val() && !newData.exists()))",
+                  ".validate": "newData.hasChildren(['command','at']) && newData.child('at').isNumber() && newData.child('at').val() <= now + 5000 && newData.child('command/type').isString() && newData.child('command/type').val().matches(/^(join|mine|craft|build|offer|vote|cancelOffer|reflect)$/)",
+                  "command": {
+                    ".validate": "newData.hasChild('type')"
+                  },
+                  "at": {
+                    ".validate": "newData.isNumber()"
+                  },
+                  "$other": {
+                    ".validate": false
+                  }
+                }
+              }
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    },
+    "campuses": {
+      ".read": "auth != null",
+      "$server": {
+        "$code": {
+          ".write": "auth != null && ((newData.exists() && root.child('servers').child($server).child('rooms').child($code).child('state').child('teacher').val() === auth.uid) || (!newData.exists() && data.child('owner').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['id','regionId','serverId','school','className','title','kind','progress','updatedAt','owner','code']) && newData.child('owner').val() === auth.uid && newData.child('code').val() === $code && newData.child('serverId').val() === $server && newData.child('id').val() === $server + '--' + $code && newData.child('regionId').val() === root.child('servers').child($server).child('rooms').child($code).child('state').child('classroom/regionId').val() && newData.child('school').val() === root.child('servers').child($server).child('rooms').child($code).child('state').child('classroom/school').val() && newData.child('className').val() === root.child('servers').child($server).child('rooms').child($code).child('state').child('classroom/className').val()",
+          "school": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+          },
+          "className": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24"
+          },
+          "progress": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
+          },
+          "kind": {
+            ".validate": "newData.isString() && newData.val().matches(/^(bridge|school|hospital)$/)"
+          },
+          "updatedAt": {
+            ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+          },
+          "title": {
+            ".validate": "newData.isString() && newData.val().length <= 80"
+          },
+          "id": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "regionId": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "serverId": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "owner": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "code": {
+            ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "sandboxes": {
+      "$server": {
+        "$code": {
+          ".read": "auth != null && (!data.exists() || data.child('state/teacher').val() === auth.uid || data.child('members').child(auth.uid).exists())",
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'google.com' && ((!data.exists() && newData.child('state/teacher').val() === auth.uid) || (data.child('state/teacher').val() === auth.uid && !newData.exists()))",
+          ".validate": "newData.hasChildren(['state','members']) && $code.matches(/^[0-9]{4}$/) && (!data.exists() || newData.child('state/teacher').val() === data.child('state/teacher').val())",
+          "state": {
+            ".write": "auth != null && auth.token.firebase.sign_in_provider === 'google.com' && data.child('teacher').val() === auth.uid && newData.exists()",
+            ".validate": "newData.hasChildren(['version','code','teacher','config','nations','bridges','stage','phase','revision']) && newData.child('version').val() === 3 && newData.child('code').val() === $code && newData.child('serverId').val() === $server && newData.child('config/size').val() >= 48 && newData.child('config/size').val() <= 96",
+            "teacher": {
+              ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+            }
+          },
+          "members": {
+            "$uid": {
+              ".read": "auth != null && auth.uid === $uid",
+              ".write": "auth != null && auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('state').exists() && ((!data.exists() && root.child('sandboxes').child($server).child($code).child('state').child('phase').val() === 'lobby') || (data.exists() && !newData.exists()))",
+              ".validate": "newData.hasChild('nickname')",
+              "nickname": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          },
+          "positions": {
+            ".indexOn": [
+              "island"
+            ],
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('members').child(auth.uid).exists() && root.child('sandboxes').child($server).child($code).child('state').child('players').child(auth.uid).child('nation').val() !== '' && root.child('sandboxes').child($server).child($code).child('state').child('phase').val() === 'playing' && now < root.child('sandboxes').child($server).child($code).child('state').child('endsAt').val()",
+              ".validate": "newData.hasChildren(['island','x','y','z','at'])",
+              "island": {
+                ".validate": "newData.isString() && newData.val() === root.child('sandboxes').child($server).child($code).child('state').child('players').child($uid).child('location').val()"
+              },
+              "at": {
+                ".validate": "newData.isNumber() && newData.val() <= now + 5000 && newData.val() >= now - 10000"
+              },
+              "y": {
+                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 32"
+              },
+              "$other": {
+                ".validate": false
+              },
+              "x": {
+                ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
+              },
+              "z": {
+                ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
+              }
+            }
+          },
+          "inbox": {
+            "$uid": {
+              "$id": {
+                ".write": "auth != null && ((auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('members').child(auth.uid).exists() && !data.exists() && newData.exists()) || (root.child('sandboxes').child($server).child($code).child('state/teacher').val() === auth.uid && auth.token.firebase.sign_in_provider === 'google.com' && !newData.exists()))",
+                ".validate": "newData.hasChildren(['id','type']) && newData.child('id').val() === $id && newData.child('type').isString() && newData.child('type').val().matches(/^(join|mine|tool|warehouse|craft|bridge|visit|return|tradeRequest|tradeEdit|tradeCancel|tradeConfirm|plan|place|remove|register|cheer|signal|reflect)$/)"
+              }
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    }
+  }
+}

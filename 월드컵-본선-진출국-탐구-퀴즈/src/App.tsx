@@ -1,1005 +1,2267 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { COUNTRIES, Country, WORLD_MAP_POLYGONS } from "./data";
-import { 
-  Trophy, 
-  Users, 
-  Clock, 
-  Flag, 
-  Play, 
-  Compass, 
-  Sparkles, 
-  RefreshCw, 
-  Award, 
-  UserPlus, 
-  CheckCircle, 
-  XCircle, 
-  HelpCircle, 
-  MapPin, 
-  Volume2, 
-  ChevronRight, 
-  UserCheck 
+import SandboxApp from './sandbox/SandboxApp';
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  Anchor,
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Box,
+  Check,
+  ChevronRight,
+  Compass,
+  Download,
+  Flag,
+  Globe2,
+  Hammer,
+  Heart,
+  Layers,
+  Lock,
+  Play,
+  Plus,
+  RefreshCw,
+  Settings2,
+  Ship,
+  Sparkles,
+  Trash2,
+  Users,
+  X,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
-
-// 대기실 학생 정의
-interface Student {
-  id: string;
-  name: string;
-  score: number;
-  solvedCount: number;
-  lastAnswerCorrect: boolean | null;
-  lastAnsweredAt: number | null; 
-  pendingScoreToAdd?: number;      
-  pendingIsCorrect?: boolean | null;  
-  pendingAnsweredAt?: number | null; 
+import QRCode from "qrcode";
+import ServerPicker from "./nationlab/ServerPicker";
+import FirstPersonControls, { requestGameFullscreen } from "./nationlab/FirstPersonControls";
+import { regions, serverId, type CampusBuilding } from "./nationlab/servers";
+const KoreaWorld = lazy(() => import("./nationlab/KoreaWorld"));
+const IslandView = lazy(() => import("./nationlab/Island"));
+function Island(props: ComponentProps<typeof IslandView>) {
+  return <Suspense fallback={<div className="island-loading" role="status">작은 섬을 만들고 있어요…</div>}><IslandView {...props} /></Suspense>;
 }
-
-// 퀴즈 문제 정의
-interface QuizQuestion {
-  country: Country;
-  options: string[];
+import {
+  World,
+  Position,
+  Basket,
+  Command,
+  config,
+  spawn,
+  progress,
+  worldProgress,
+  pathTo,
+  walkable,
+  adjacent,
+  port,
+  tradeClosed,
+  tradePotential,
+  origins,
+  reflectionCSV,
+} from "./nationlab/engine";
+import {
+  Session,
+  Envelope,
+  createRoom,
+  joinRoom,
+  restoreSession,
+  forgetSession,
+  subscribe,
+  transact,
+  move,
+  deleteRoom,
+  configured,
+  rememberPositions,
+  subscribeCampuses,
+  serverNow,
+} from "./nationlab/service";
+const pct = (n: number) => Math.round(n * 100) + "%";
+const phaseNames: Record<string, string> = {
+  lobby: "대기실",
+  meeting: "회의",
+  activity: "활동",
+  settlement: "정산",
+  ended: "수업 마침",
+};
+const emptyBasket = (): Basket => ({ goods: {}, gold: 0 });
+function download(name: string, text: string, type = "text/csv;charset=utf-8") {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function LegacyApp() {
+  const cfg = config();
+  const params = new URLSearchParams(location.search);
+  const [session, setSession] = useState<Session | null>(restoreSession);
+  const [env, setEnv] = useState<Envelope | null>(null);
+  const [role, setRole] = useState(params.has("room") ? "student" : "teacher");
+  const [mode, setMode] = useState<Session["mode"]>(
+    params.get("mode") === "local" ? "local" : "firebase",
+  );
+  const [code, setCode] = useState(params.get("room") || "");
+  const [nickname, setNickname] = useState("");
+  const initialRegion = regions().find(r => r.id === params.get("region")) || regions()[0];
+  const [regionId, setRegionId] = useState(initialRegion.id);
+  const [district, setDistrict] = useState(initialRegion.districts.includes(params.get("district") || "") ? params.get("district")! : initialRegion.districts[0]);
+  const [school, setSchool] = useState("");
+  const [className, setClassName] = useState("");
+  const [buildingCountry, setBuildingCountry] = useState("hualian");
+  const [campuses, setCampuses] = useState<CampusBuilding[]>([]);
+  const [directoryError, setDirectoryError] = useState("");
+  const [atlasOpen, setAtlasOpen] = useState(false);
+  function chooseServer(region: string, area: string) { setRegionId(region); setDistrict(area); }
 
-// 결정론적 셔플 (Seeded Shuffle)로 보기가 시간에 따라 섞이지 않도록 방지
-function deterministicShuffle<T>(array: T[], seed: number): T[] {
-  const shuffled = [...array];
-  let currentSeed = seed;
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const x = Math.sin(currentSeed++) * 10000;
-    const r = x - Math.floor(x);
-    const j = Math.floor(r * (i + 1));
-    const temp = shuffled[i];
-    shuffled[i] = shuffled[j];
-    shuffled[j] = temp;
-  }
-  return shuffled;
-}
-
-export default function App() {
-  // 모드 게이트웨이: null(선택 대기), 'TEACHER', 'STUDENT'
-  const [role, setRole] = useState<"TEACHER" | "STUDENT" | null>(null);
-
-  // 멀티플레이어 기본 세팅
-  const [roomCode, setRoomCode] = useState<string>("2026"); 
-  const [isTeacherCodeSetup, setIsTeacherCodeSetup] = useState<boolean>(false);
-  const [studentName, setStudentName] = useState<string>("");
-  const [myId, setMyId] = useState<string>("");
-  const [isRegistered, setIsRegistered] = useState<boolean>(false);
-
-  // 게임 글로벌 상태 (교사와 학생이 동기화할 상태)
-  const [gameState, setGameState] = useState<"LOBBY" | "PLAYING" | "FINISHED">("LOBBY");
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
-  const [students, setStudents] = useState<Student[]>([]);
-
-  // 안전하게 학생 상태를 업데이트하는 헬퍼 함수 (서버 구조 변화에 따른 White Screen 원천 차단)
-  const safeSetStudentsFromData = (data: any) => {
-    if (!data) return;
-    if (Array.isArray(data.students)) {
-      setStudents(data.students);
-    } else if (data.room && Array.isArray(data.room.students)) {
-      setStudents(data.room.students);
-    } else if (Array.isArray(data)) {
-      setStudents(data);
-    }
-  };
-
-  // 타이머 관련 (각 문제당 10s * 3힌트 + 30s 백지도 = 60초)
-  const [timeLeft, setTimeLeft] = useState<number>(60);
-  const [timerActive, setTimerActive] = useState<boolean>(false);
-
-  // 안내 메시지
-  const [feedbackMsg, setFeedbackMsg] = useState<string>("준비 완료! 문제를 주의 깊게 읽어보세요.");
-
-  // 학생 개별 클라이언트 상태
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-  const [earnedPoints, setEarnedPoints] = useState<number>(0);
-
-  // 백지도 캔버스 Ref
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // 데모 생성용 학생 이름
-  const DEMO_NAMES = [
-    "김지우", "이민준", "박서윤", "최예준", "정서현", 
-    "강도윤", "조하은", "윤주원", "장채원", "임도현", 
-    "한지민", "오건우", "서유나", "신우진", "권다은", 
-    "황준우", "안지아", "송민재", "전하윤", "유도윤"
-  ];
-
-  // 룸 코드와 상관없이 모든 사용자 기기(교사 및 모든 학생) 등에서 동일하고 이상 변형 없는 고정 오지선다 퀴즈셋을 보증합니다.
-  const quizQuestions = useMemo<QuizQuestion[]>(() => {
-    return COUNTRIES.map((country) => {
-      const otherCountries = COUNTRIES.filter((c) => c.name !== country.name);
-      const len = otherCountries.length;
-      
-      // 수학적 고정 공식을 이용해 각 국가에 매칭될 오답 4개를 완벽하게 정해둠
-      const rawOthers = [
-        otherCountries[(country.id * 1) % len].name,
-        otherCountries[(country.id * 3) % len].name,
-        otherCountries[(country.id * 7) % len].name,
-        otherCountries[(country.id * 9) % len].name,
-      ];
-
-      // 중복 방지 보강
-      const uniqueOthers = Array.from(new Set(rawOthers));
-      while (uniqueOthers.length < 4) {
-        for (let i = 0; i < len; i++) {
-          const name = otherCountries[i].name;
-          if (!uniqueOthers.includes(name)) {
-            uniqueOthers.push(name);
-            if (uniqueOthers.length >= 4) break;
-          }
-        }
-      }
-
-      // 정답을 더하고 가나다 순으로 완벽하게 확정 정렬!
-      // 이로써 무작위 확률로 인한 이상 보기나 학생별 불일치가 100% 영구적으로 예방됩니다.
-      const options = [country.name, ...uniqueOthers].sort((a, b) => a.localeCompare(b, 'ko'));
-      
-      return { country, options };
-    });
-  }, []);
-
-  // 상태 실시간 참조를 위한 refs
-  const roomCodeRef = useRef<string>(roomCode);
-  const gameStateRef = useRef<"LOBBY" | "PLAYING" | "FINISHED">(gameState);
-  const currentQuestionIndexRef = useRef<number>(currentQuestionIndex);
-  const timeLeftRef = useRef<number>(timeLeft);
-  const timerActiveRef = useRef<number | boolean>(timerActive);
-
-  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
-  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
-  useEffect(() => { currentQuestionIndexRef.current = currentQuestionIndex; }, [currentQuestionIndex]);
-  useEffect(() => { timeLeftRef.current = timeLeft; }, [timeLeft]);
-  useEffect(() => { timerActiveRef.current = timerActive; }, [timerActive]);
-
-  // 컴포넌트 마운트 시 학생 고유 ID 생성
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("island");
+  const [panel, setPanel] = useState("warehouse");
+  const [selected, setSelected] = useState<Position | null>(null);
+  const [origin, setOrigin] = useState(false);
+  const [viewCountry, setViewCountry] = useState(cfg.countries[0].id);
+  const [pilot, setPilot] = useState("teacher");
+  const [clock, setClock] = useState(Date.now());
+  const [guide, setGuide] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const walking = useRef(0);
+  const miningLock = useRef(false);
+  const [studentView, setStudentView] = useState(true);
+  const [drawer, setDrawer] = useState(false);
+  const [look, setLook] = useState({yaw: 0, pitch: -0.22});
+  const [aim, setAim] = useState<Position | null>(null);
+  const [rendererType, setRendererType] = useState("webgl");
+  const directMoveBusy = useRef(false);
+  const [mining, setMining] = useState<{ node: string; actor: string } | null>(null);
+  const [qr, setQr] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [to, setTo] = useState(cfg.countries[1].id);
+  const [give, setGive] = useState<Basket>(emptyBasket);
+  const [receive, setReceive] = useState<Basket>(emptyBasket);
+  const [counterOf, setCounterOf] = useState("");
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [filterRound, setFilterRound] = useState("all");
+  const [event, setEvent] = useState({
+    id: "none",
+    country: cfg.countries[0].id,
+    good: "wood",
+    facility: "furnace",
+  });
+  const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
-    const uniqueId = "student_" + Math.random().toString(36).substr(2, 9);
-    setMyId(uniqueId);
-  }, []);
-
-  // 1초 간격 실시간 서버 폴링 루프
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-
-    const runPoll = async () => {
-      if (!roomCode) return;
-      try {
-        const res = await fetch(`/api/room/${roomCode}`);
-        if (res.ok) {
-          const data = await res.json();
-          
-          if (role === "STUDENT") {
-            setGameState(data.gameState || "LOBBY");
-            setCurrentQuestionIndex(data.currentQuestionIndex || 0);
-            safeSetStudentsFromData(data);
-            setTimeLeft(data.timeLeft !== undefined ? data.timeLeft : 60);
-            setTimerActive(!!data.timerActive);
-
-            const isMeInRoom = Array.isArray(data.students) && data.students.some((s: any) => s.id === myId);
-            
-            if (isRegistered && !isMeInRoom) {
-              // 학생이 등록 상태이지만 서버 명단에 없는 경우 (서버 초기화 등)
-              setIsRegistered(false);
-              setSelectedOption(null);
-              setHasSubmitted(false);
-              setIsCorrect(null);
-              setEarnedPoints(0);
-            } else if (data.gameState === "LOBBY") {
-              // 단순 로비 대기 상황에서는 가치를 유지하고 답변 상태만 초기화
-              setSelectedOption(null);
-              setHasSubmitted(false);
-              setIsCorrect(null);
-              setEarnedPoints(0);
-            }
-          } else {
-            // 교사 혹은 선택 대기 상태일 때는 학생들의 실시간 현황 점수판만 갱신
-            safeSetStudentsFromData(data);
-          }
-        }
-      } catch (err) {
-        console.warn("방 정보 폴링 오류:", err);
-      }
+    const tick = setInterval(() => setClock(serverNow()), 500);
+    const connect = () => setOnline(navigator.onLine);
+    window.addEventListener("online", connect);
+    window.addEventListener("offline", connect);
+    return () => {
+      clearInterval(tick);
+      window.removeEventListener("online", connect);
+      window.removeEventListener("offline", connect);
     };
-
-    if (roomCode) {
-      runPoll();
-      intervalId = setInterval(runPoll, 1000); 
-    }
-
-    return () => { if (intervalId) clearInterval(intervalId); };
-  }, [roomCode, role, myId, isRegistered]);
-
-  // 교사 전용 상태 동기화 함수 
-  // 중요: 타이머가 깎일 때(매초)는 students 인자를 누락시켜 서버의 학생 입장/제출 데이터가 덮어씌워지지 않게 차단합니다.
-  const broadcastState = async (
-    gState: "LOBBY" | "PLAYING" | "FINISHED",
-    qIndex: number,
-    tLeft: number,
-    tActive: boolean,
-    currentStudents?: Student[] | null
-  ) => {
-    try {
-      const payload: any = {
-        gameState: gState,
-        currentQuestionIndex: qIndex,
-        timeLeft: tLeft,
-        timerActive: tActive
-      };
-      
-      if (currentStudents) {
-        payload.students = currentStudents;
-      }
-
-      await fetch(`/api/room/${roomCode}/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      console.error("서버 상태 전송 오류:", err);
-    }
-  };
-
-  // 타이머 카운트다운 핸들러 (교사 브라우저가 주도)
+  }, []);
   useEffect(() => {
-    let timerId: NodeJS.Timeout;
-    if (role === "TEACHER" && timerActive && timeLeft > 0 && gameState === "PLAYING") {
-      timerId = setTimeout(() => {
-        const nextTime = timeLeft - 1;
-        setTimeLeft(nextTime);
-        // 실시간 타이머만 서버로 전송 (학생 배열 제외하여 동기화 락 방지)
-        broadcastState(gameState, currentQuestionIndex, nextTime, timerActive);
-      }, 1000);
-    } else if (role === "TEACHER" && timeLeft === 0 && timerActive) {
-      setTimerActive(false);
-      broadcastState(gameState, currentQuestionIndex, 0, false);
-    }
-
-    return () => { if (timerId) clearTimeout(timerId); };
-  }, [timeLeft, timerActive, role, gameState, currentQuestionIndex]);
-
-  // 힌트 단계 확인 연산 (각 힌트 노출 10초 간격, 백지도 30초 간격 = 총 60초)
-  const elapsed = 60 - timeLeft;
-  const isHint1Active = elapsed >= 0;
-  const isHint2Active = elapsed >= 10;
-  const isHint3Active = elapsed >= 20;
-  const isHint4Active = elapsed >= 30;
-
-  // 배점 계산 헬퍼 (힌트 1: 30점, 힌트 2: 25점, 힌트 3: 20점, 힌트 4 백지도: 15점)
-  const getPointsForTime = (timeElapsed: number): number => {
-    if (timeElapsed < 10) return 30;
-    if (timeElapsed < 20) return 25;
-    if (timeElapsed < 30) return 20;
-    return 15;
-  };
-
-  // 백지도 드로잉 핸들러
-  useEffect(() => {
-    if (isHint4Active && canvasRef.current && quizQuestions[currentQuestionIndex]) {
-      drawWorldMap();
-    }
-  }, [isHint4Active, currentQuestionIndex, quizQuestions, timeLeft]);
-
-  const drawWorldMap = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#0c4a23"; 
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-    ctx.lineWidth = 1;
-    for (let latLine = -60; latLine <= 75; latLine += 15) {
-      const cy = getCanvasY(latLine, height);
-      ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(width, cy); ctx.stroke();
-    }
-    for (let lngLine = -150; lngLine <= 150; lngLine += 30) {
-      const cx = getCanvasX(lngLine, width);
-      ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, height); ctx.stroke();
-    }
-
-    // 대륙 윤곽선 폴리곤 그리기
-    ctx.fillStyle = "rgba(16, 185, 129, 0.25)"; 
-    ctx.strokeStyle = "#10b981"; 
-    ctx.lineWidth = 1.5;
-
-    WORLD_MAP_POLYGONS.forEach((polygon) => {
-      ctx.beginPath();
-      polygon.forEach((pt, idx) => {
-        const cx = getCanvasX(pt.lng, width);
-        const cy = getCanvasY(pt.lat, height);
-        if (idx === 0) ctx.moveTo(cx, cy);
-        else ctx.lineTo(cx, cy);
-      });
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-    });
-
-    // 정답 국가 타겟 레이더 마킹
-    const currentQ = quizQuestions[currentQuestionIndex];
-    if (currentQ) {
-      const targetCountry = currentQ.country;
-      const targetX = getCanvasX(targetCountry.lng, width);
-      const targetY = getCanvasY(targetCountry.lat, height);
-
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.5)";
-      ctx.beginPath();
-      ctx.moveTo(0, targetY); ctx.lineTo(width, targetY);
-      ctx.moveTo(targetX, 0); ctx.lineTo(targetX, height);
-      ctx.stroke();
-
-      const pulseRadius = 10 + (Date.now() % 1000) / 100;
-      ctx.strokeStyle = "#ef4444";
-      ctx.beginPath(); ctx.arc(targetX, targetY, pulseRadius, 0, Math.PI * 2); ctx.stroke();
-
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath(); ctx.arc(targetX, targetY, 6, 0, Math.PI * 2); ctx.fill();
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 10px sans-serif";
-      ctx.fillText("정답 국가 위치", targetX + 10, targetY - 6);
-    }
-  };
-
-  const getCanvasX = (lng: number, width: number) => ((lng + 180) / 360) * width;
-  const getCanvasY = (lat: number, height: number) => {
-    const maxLat = 82; const minLat = -60;
-    const scaledLat = Math.max(minLat, Math.min(maxLat, lat));
-    return height - ((scaledLat - minLat) / (maxLat - minLat)) * height;
-  };
-
-  // 교사 모드: 데모 가상 학생 20명 실시간 생성
-  const handleAddDemoStudents = () => {
-    const existingRealStudents = students.filter(s => !s.id.startsWith("demo_"));
-    const existingNames = existingRealStudents.map(s => s.name);
-
-    const demoList: Student[] = DEMO_NAMES.filter(name => !existingNames.includes(name)).map((name, index) => ({
-      id: `demo_${index + 1}_${Math.random().toString(36).substr(2, 4)}`,
-      name, score: 0, solvedCount: 0, lastAnswerCorrect: null, lastAnsweredAt: null,
-    }));
-
-    const mergedList = [...existingRealStudents, ...demoList].slice(0, 20);
-    setStudents(mergedList);
-    setFeedbackMsg("데모 시연용 가상 학생 20명이 완벽하게 세팅되었습니다!");
-    broadcastState(gameState, currentQuestionIndex, timeLeft, timerActive, mergedList);
-  };
-
-  // 교사 모드: 게임 시작 실행
-  const handleStartGame = () => {
-    if (students.length === 0) {
-      alert("대기실에 학생이 최소 1명 이상 있어야 킥오프할 수 있습니다!");
-      return;
-    }
-    setGameState("PLAYING");
-    setCurrentQuestionIndex(0);
-    setTimeLeft(60);
-    setTimerActive(true);
-
-    const resetStudents = students.map((s) => ({
-      ...s, score: 0, solvedCount: 0, lastAnswerCorrect: null, lastAnsweredAt: null,
-    }));
-    setStudents(resetStudents);
-    broadcastState("PLAYING", 0, 60, true, resetStudents);
-  };
-
-  // 교사 모드: 다음 문제 진행
-  const handleNextQuestion = () => {
-    if (currentQuestionIndex < quizQuestions.length - 1) {
-      const nextIndex = currentQuestionIndex + 1;
-      setCurrentQuestionIndex(nextIndex);
-      setTimeLeft(60);
-      setTimerActive(true);
-
-      const nextStudents = students.map((s) => ({
-        ...s, lastAnswerCorrect: null, lastAnsweredAt: null,
-      }));
-      setStudents(nextStudents);
-      broadcastState("PLAYING", nextIndex, 60, true, nextStudents);
-    } else {
-      setGameState("FINISHED");
-      setTimerActive(false);
-      broadcastState("FINISHED", currentQuestionIndex, 0, false, students);
-    }
-  };
-
-  // 학생 모드: 서버 연동형 방 입장 처리
-  const handleJoinRoom = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentName.trim()) return alert("이름을 입력해 주세요!");
-
-    setIsRegistered(true);
-    setFeedbackMsg(`대기실 입장 완료! 선생님의 호각 소리를 기다리는 중...`);
-
-    try {
-      const res = await fetch(`/api/room/${roomCode}/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: myId, name: studentName }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        safeSetStudentsFromData(data);
-        // 서버에서 이름이 동일한 경우 등 기존 가입 식별자를 건네 받으면, 클라이언트 myId를 덮어씀으로써 온전히 세션/점수를 복원 연계!
-        if (data.registeredStudentId) {
-          setMyId(data.registeredStudentId);
+    if (!session) return;
+    setDeleted(false);
+    return subscribe(
+      session,
+      (e) => {
+        if (!e) {
+          setDeleted(true);
+          return;
         }
-      }
-    } catch (err) {
-      console.error("서버 방 조인 실패:", err);
-    }
-  };
-
-  // 학생 모드: 객관식 보기 제출 처리
-  const handleSubmitAnswer = async (optionName: string) => {
-    if (hasSubmitted || timeLeft <= 0) return;
-
-    setSelectedOption(optionName);
-    setHasSubmitted(true);
-
-    const currentQ = quizQuestions[currentQuestionIndex];
-    if (!currentQ) return;
-
-    const correct = currentQ.country.name === optionName;
-    setIsCorrect(correct);
-
-    const timeSpent = 60 - timeLeft;
-    const points = correct ? getPointsForTime(timeSpent) : 0;
-    setEarnedPoints(points);
-
-    setFeedbackMsg(`제출 완료! 정답 판정은 60초 제한시간이 마감된 후 공개됩니다.`);
-
-    try {
-      const res = await fetch(`/api/room/${roomCode}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentId: myId,
-          name: studentName,
-          score: points,
-          isCorrect: correct,
-          answeredAt: timeSpent,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        safeSetStudentsFromData(data);
-      }
-    } catch (err) {
-      console.error("서버 답안 제출 실패:", err);
-    }
-  };
-
-  // 문제 변동 감지 시 상태 리셋
+        rememberPositions(session, e.positions);
+        setEnv(e);
+      },
+      (e) => setError("연결을 확인해 주세요: " + e.message),
+    );
+  }, [session]);
+  const w = env?.state;
+  const host = !!w && w.teacher === session?.uid;
+  const selectedServer = serverId(regionId, district);
   useEffect(() => {
-    setSelectedOption(null); setHasSubmitted(false); setIsCorrect(null); setEarnedPoints(0);
-    setFeedbackMsg("새로운 문항이 시작되었습니다! 단서를 기반으로 맞춰보세요.");
-  }, [currentQuestionIndex]);
-
-  // 제한시간 종료 시 안내 문구 제어
+    if (w?.classroom) { setRegionId(w.classroom.regionId); setDistrict(w.classroom.district); }
+  }, [session?.code, w?.classroom?.serverId]);
   useEffect(() => {
-    if (gameState === "PLAYING" && timeLeft === 0) {
-      const currentQ = quizQuestions[currentQuestionIndex];
-      if (currentQ) {
-        if (!hasSubmitted) setFeedbackMsg(`⏰ 시간 초과! 아쉽게 슛을 쏘지 못했습니다. 정답은 [${currentQ.country.name}] 입니다.`);
-        else if (isCorrect === false) setFeedbackMsg(`❌ 골대 밖으로! 오답입니다. 정답 국가는 [${currentQ.country.name}] 입니다.`);
-        else setFeedbackMsg(`🎉 정확하게 골망을 흔들었습니다! 정답은 [${currentQ.country.name}] 입니다!`);
+    setDirectoryError("");
+    const accessMode = session?.mode || (configured() ? mode : "local");
+    return subscribeCampuses(accessMode, setCampuses, e => setDirectoryError(e.message));
+  }, [session?.mode, mode]);
+
+  const actor =
+    session?.demo && pilot !== "teacher" ? pilot : session?.uid || "";
+  const p = w?.players[actor];
+  const cid = p?.country || viewCountry;
+  const country = w?.countries[cid];
+  const spec = w?.config.countries.find((c: any) => c.id === cid);
+  const pos = env?.positions[actor] || (w ? spawn(w, actor) : { x: 4, y: 10 });
+  const time = w ? Math.max(0, Math.ceil((w.phaseEnd - clock) / 1000)) : 0;
+  const active = w?.phase === "activity" && time > 0 && online;
+  const editable = !!p && active && !busy;
+  const ownHost = host && pilot === "teacher";
+  const immersive = !!p?.country && studentView && tab === "island" && w?.phase !== "lobby";
+  useEffect(() => {
+    if (!immersive) return;
+    const before = document.body.style.overflow; document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = before; };
+  }, [immersive]);
+  const closeReason = w ? tradeClosed(w, cid) : "";
+  const atPort = !!w && adjacent(pos, port(w));
+  const reflectedRound =
+    w?.phase === "meeting" ? Math.max(0, w.round - 1) : w?.round || 0;
+  const questions = w
+    ? reflectedRound === 1
+      ? w.config.reflections.first
+      : w.config.reflections.regular
+    : [];
+  useEffect(() => {
+    walking.current++;
+    setMoving(false);
+    setSelected(null);
+    setAim(null);
+    setDrawer(w?.phase === "settlement");
+    if (w?.phase === "settlement") setPanel("reflect");
+  }, [actor, w?.phase, cid]);
+  useEffect(() => {
+    if (!w || !actor) return;
+    const r = w.reflections[String(reflectedRound)]?.[actor];
+    setAnswers(r?.answers || questions.map(() => ""));
+  }, [reflectedRound, actor]);
+  useEffect(() => {
+    if (!session) return;
+    const url =
+      location.origin +
+      location.pathname +
+      "?room=" +
+      session.code +
+      "&mode=" +
+      session.mode + (w?.classroom ? "&region=" + encodeURIComponent(w.classroom.regionId) + "&district=" + encodeURIComponent(w.classroom.district) : "");
+    QRCode.toDataURL(url, {
+      width: 180,
+      margin: 1,
+      color: { dark: "#28443e", light: "#ffffff" },
+    })
+      .then(setQr)
+      .catch(() => {});
+  }, [session, w?.classroom?.serverId]);
+  async function enter(demo = false) {
+    if (!demo && role === "student") requestGameFullscreen();
+    setStudentView(true);
+    setBusy(true);
+    setError("");
+    try {
+      if (!demo && mode === "firebase" && !configured())
+        throw Error(
+          "아직 Firebase 웹 설정값이 없어요. 먼저 혼자 체험하거나 README를 따라 config.js를 연결해 주세요.",
+        );
+      const classroom = {regionId, district, serverId: selectedServer, school: demo ? "체험초등학교" : school, className: demo ? "6학년 체험반" : className, buildingCountry};
+      const s = demo
+        ? await createRoom("local", true, classroom)
+        : role === "teacher"
+          ? await createRoom(mode, false, classroom)
+          : await joinRoom(code.trim(), nickname, mode, selectedServer);
+      setEnv(null);
+      setSession(s);
+      setTab(demo ? "teacher" : "island");
+      setPilot("teacher");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function act(command: Command, asTeacher = false) {
+    if (!session || miningLock.current) return;
+    const miningTicket = walking.current;
+    if (command.type === "mine") {
+      miningLock.current = true;
+      setMining({ node: command.node, actor });
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (command.type === "mine") {
+        await new Promise((r) => setTimeout(r, 650));
+        if (miningTicket !== walking.current) return;
+      }
+      await transact(session, command, asTeacher ? session.uid : actor);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (command.type === "mine") {
+        miningLock.current = false;
+        setMining(null);
+      }
+      setBusy(false);
+    }
+  }
+  function exit() {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    walking.current++;
+    forgetSession();
+    setSession(null);
+    setEnv(null);
+    setDeleted(false);
+    setError("");
+  }
+  async function travel(target: Position, harvestNode?: string) {
+    if (!w || !p?.country || !active || !session) return;
+    const route = pathTo(w, p.country, pos, target);
+    const ticket = ++walking.current;
+    setMoving(route.length > 0);
+    try {
+      if (!env?.positions[actor]) await move(session, pos, actor);
+      for (const step of route) {
+        if (ticket !== walking.current) break;
+        await move(session, step, actor);
+        await new Promise((r) => setTimeout(r, 110));
+      }
+      const destination = route.length ? route[route.length - 1] : pos;
+      if (harvestNode && ticket === walking.current && adjacent(destination, target)) {
+        await act({ type: "mine", node: harvestNode });
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (ticket === walking.current) setMoving(false);
+    }
+  }
+  function tap(tile: Position) {
+    if (!w || miningLock.current) return;
+    setSelected(tile);
+    const node = Object.values(country!.nodes).find(
+        (n) => n.x === tile.x && n.y === tile.y,
+      ),
+      site = Object.values(country!.sites).find(
+        (n) => n.x === tile.x && n.y === tile.y,
+      ),
+      facility = Object.entries(country!.facilities).find(
+        ([, n]) => n.x === tile.x && n.y === tile.y,
+      );
+    if (facility) setPanel("craft");
+    else if (tile.x === port(w).x && tile.y === port(w).y) setPanel("trade");
+    else if (site) setPanel("build");
+    else if (node) setPanel("warehouse");
+    if (p && active) travel(tile, node && p.stamina > 0 ? node.id : undefined);
+  }
+  async function step(dx: number, dy: number) {
+    if (!w || !p || !session || !active || moving || miningLock.current) return;
+    const next = { x: pos.x + dx, y: pos.y + dy };
+    if (walkable(w, cid, next)) {
+      walking.current++;
+      try {
+        await move(session, next, actor);
+      } catch (e) {
+        setError((e as Error).message);
       }
     }
-  }, [timeLeft, gameState, currentQuestionIndex, quizQuestions, hasSubmitted, isCorrect]);
-
-  // 서버 초기화 호각소리 날리기
-  const handleResetAll = async () => {
-    try {
-      await fetch(`/api/room/${roomCode}/reset`, { method: "POST" });
-    } catch (err) {
-      console.error("서버 초기화 실패:", err);
-    }
-    setRole(null); setIsTeacherCodeSetup(false); setGameState("LOBBY"); setStudents([]); setCurrentQuestionIndex(0); setIsRegistered(false);
-  };
-
-  const podiumStudents = [...students].sort((a, b) => b.score - a.score).slice(0, 3);
-  const topFiveStudents = [...students].sort((a, b) => b.score - a.score).slice(0, 5);
-  const myInfo = students.find((s) => s.id === myId);
-  const myCurrentScore = myInfo ? myInfo.score : 0;
-  const myCurrentSolvedCount = myInfo ? myInfo.solvedCount : 0;
-
+  }
+  const selectedNode =
+    country && selected
+      ? Object.values(country.nodes).find(
+          (n) => n.x === selected.x && n.y === selected.y,
+        )
+      : null;
+  const selectedSite =
+    country && selected
+      ? Object.values(country.sites).find(
+          (n) => n.x === selected.x && n.y === selected.y,
+        )
+      : null;
+  function counter(o: any) {
+    setTo(o.from === cid ? o.to : o.from);
+    setGive(o.from === cid ? o.give : o.receive);
+    setReceive(o.from === cid ? o.receive : o.give);
+    setCounterOf(o.id);
+    setPanel("trade");
+    setTab("island");
+  }
+  const aimNode = aim && country && Object.values(country.nodes).find(n => n.x === aim.x && n.y === aim.y);
+  const aimSite = aim && country && Object.values(country.sites).find(n => n.x === aim.x && n.y === aim.y);
+  const aimFacility = aim && country && Object.entries(country.facilities).find(([, n]) => n.x === aim.x && n.y === aim.y);
+  const aimPort = aim && w && aim.x === port(w).x && aim.y === port(w).y;
+  const targetReachable = aim && adjacent(pos, aim) && !!(aimNode || aimSite || aimFacility || aimPort);
+  const targetLabel = aimNode ? w!.config.goods[aimNode.good].name : aimFacility ? w!.config.facilities[aimFacility[0]] : aimPort ? "항구" : aimSite ? w!.config.goods[aimSite.good].name + " 건축 부지" : "";
+  async function directMove(forward: number, right: number) {
+    if (!active || !session || !p || !w || drawer || miningLock.current || directMoveBusy.current) return;
+    const yaw = rendererType === "2d" ? 0 : look.yaw;
+    const x = -Math.sin(yaw) * forward + Math.cos(yaw) * right;
+    const y = -Math.cos(yaw) * forward - Math.sin(yaw) * right;
+    const next = {x:pos.x + (Math.abs(x) > Math.abs(y) ? Math.sign(x) : 0), y:pos.y + (Math.abs(x) > Math.abs(y) ? 0 : Math.sign(y))};
+    if (!walkable(w, cid, next)) return;
+    walking.current++; directMoveBusy.current = true;
+    try {await move(session,next,actor);} catch(e){setError((e as Error).message);} finally {directMoveBusy.current = false;}
+  }
+  function useAim() {
+    if (!editable || !aim || !targetReachable) return;
+    setSelected(aim);
+    if (aimNode) { if (p!.stamina <= 0) {setError("체력을 모두 썼어요. 친구들과 가공·교역을 해 보세요.");return;} void act({type:"mine",node:aimNode.id}); }
+    else if (aimFacility) {setPanel("craft");setDrawer(true);}
+    else if (aimPort) {setPanel("trade");setDrawer(true);}
+    else if (aimSite && !aimSite.unit) {void act({type:"build",site:aimSite.id});}
+    else {setPanel("build");setDrawer(true);}
+  }
+  const offerText = (b: Basket) =>
+    [
+      ...Object.entries(b.goods || {})
+        .filter(([, n]) => n > 0)
+        .map(([g, n]) => `${w?.config.goods[g].name} ${n}개`),
+      ...(b.gold ? [`${b.gold} G`] : []),
+    ].join(" + ") || "없음";
   return (
-    <div className="min-h-screen bg-emerald-950 font-sans text-gray-100 flex flex-col antialiased relative overflow-hidden">
-      {/* 운동장 필드 배경 라인 데코 */}
-      <div className="absolute inset-0 pointer-events-none opacity-10">
-        <div className="absolute inset-4 border-2 border-dashed border-white rounded-lg"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-white rounded-full"></div>
-      </div>
-
-      {/* 상단 네비바 */}
-      <header className="bg-emerald-900/90 backdrop-blur-md border-b border-emerald-800/80 sticky top-0 z-40 px-4 py-3 shadow-lg flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="bg-amber-500 text-emerald-950 p-1.5 rounded-lg shadow-inner"><Trophy className="w-6 h-6" /></div>
+    <div className={"nl-app" + (immersive ? " immersive" + (drawer ? " drawer-open" + (panel === "reflect" ? " reflection-open" : "") : "") : "")}>
+      {immersive && <FirstPersonControls nickname={p!.nickname} country={spec.name} stamina={p!.stamina} progress={worldProgress(w!)} phase={phaseNames[w!.phase]} time={time} active={!!active} mining={!!mining} aimLabel={targetLabel} canUse={!!targetReachable} onMove={directMove} onUse={useAim} onPanel={id => {if(id === "reflect" && w?.phase !== "settlement" && !(w?.phase === "meeting" && w.round > 1)){setError("성찰은 정산 시간에 적어요.");return;}setPanel(id);setDrawer(true);}} onOverview={() => {setStudentView(false); if(document.fullscreenElement) void document.exitFullscreen().catch(()=>{});}} onFullscreen={requestGameFullscreen} drawer={drawer} closeDrawer={() => setDrawer(false)} notice={error || (rendererType === "2d" ? "이 기기는 2D 지도로 플레이해요." : "")} />}
+      <header className="nl-header">
+        <div className="nl-logo">
+          <span className="logo-cube">
+            <Box size={25} />
+          </span>
           <div>
-            <h1 className="text-lg md:text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
-              <span>월드컵 20개국 퀴즈</span>
-            </h1>
-            <p className="text-xs text-emerald-300">초등학교 6학년 사회, 체육 퀴즈</p>
+            NATION<span>LAB</span>
+            <small>우리 교실의 작은 세계</small>
           </div>
         </div>
-
-        {role && (
-          <div className="flex items-center space-x-3">
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-800/70 text-emerald-100 border border-emerald-700/50 flex items-center gap-1.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${role === "TEACHER" ? "bg-amber-400" : "bg-sky-400"}`}></span>
-              {role === "TEACHER" ? "👨‍🏫 교사 대시보드" : `🏃 선수: ${studentName}`}
+        <div className="header-middle">
+          <span className="tiny-dot" /> 함께 만들어 가는 세계
+        </div>
+        <div className="header-actions">
+          {session && (
+            <span className={"connection " + (!online ? "offline" : "")}>
+              {session.mode === "firebase" ? "실시간 수업" : "같은 기기 연습"}
             </span>
-            <button onClick={handleResetAll} className="text-xs bg-red-600 hover:bg-red-700 font-bold px-2.5 py-1.5 rounded text-white flex items-center gap-1 shadow-sm">
-              <RefreshCw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">전체초기화</span>
+          )}
+          <button
+            className="icon-button"
+            onClick={() => setGuide(true)}
+            aria-label="게임 안내"
+          >
+            <BookOpen size={20} />
+          </button>
+          {session && (
+            <button
+              className="icon-button"
+              onClick={() => setConfirm("exit")}
+              aria-label="접속 화면으로"
+            >
+              <ArrowLeft size={20} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
-
-      {/* 실시간 콘텐츠 본부 */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 flex flex-col justify-center">
-        {!role && (
-          <div>
-            {!isTeacherCodeSetup ? (
-              <div className="max-w-xl w-full mx-auto bg-emerald-900/70 border border-emerald-800 rounded-3xl p-6 md:p-8 shadow-2xl backdrop-blur-xl text-center">
-                <div className="inline-block bg-gradient-to-tr from-amber-500 to-yellow-400 text-emerald-950 p-4 rounded-3xl mb-4"><Trophy className="w-12 h-12" /></div>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white">수업 역할을 선택해주세요</h2>
-                <p className="text-emerald-300 text-sm mt-2 mb-6 font-medium">실시간 서버와 연동하여 여러 학급이 동시에 퀴즈를 진행할 수 있습니다.</p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => { setIsTeacherCodeSetup(true); }} className="bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold p-6 rounded-2xl border-b-4 border-amber-600 flex flex-col items-center space-y-2 cursor-pointer transition">
-                    <span className="text-3xl">👨‍🏫</span> <span className="text-base font-black">연구수업 교사용 화면</span>
-                  </button>
-                  <button onClick={() => { setRole("STUDENT"); }} className="bg-emerald-800 hover:bg-emerald-700 text-white font-bold p-6 rounded-2xl border border-emerald-700 flex flex-col items-center space-y-2 cursor-pointer transition">
-                    <span className="text-3xl">🏃</span> <span className="text-base font-black text-yellow-300">참여용 학생 화면</span>
-                  </button>
+      {!session ? (
+        <main className="landing">
+          <section className="landing-copy">
+            <div className="overline">캐고 · 만들고 · 나누며 배우는 무역</div>
+            <h1>대한민국에 세우는,<br />우리 학급의 건물.</h1>
+            <p>
+              교육청과 교육지원청 서버를 고르고 시작해요.
+              <br />자원을 캐고, 가공하고, 친구들과 건물을 지어요.
+              <br />같은 세계에서 다른 학교의 건물도 구경할 수 있어요.
+            </p>
+            <button className="secondary wide atlas-entry" onClick={() => setAtlasOpen(!atlasOpen)}><Globe2 size={20}/>{atlasOpen ? "대한민국 지도 닫기" : "대한민국 월드 둘러보기"}</button>
+            <div className="landing-islands">
+              {cfg.countries.map((c: any, i: number) => (
+                <div className={"pixel-island island-" + i} key={c.id}>
+                  <span className="pixel-building">{["▦", "▤", "▥"][i]}</span>
+                  <b>{c.short}</b>
+                  <small>{c.biome}</small>
                 </div>
-              </div>
+              ))}
+            </div>
+            <div className="learning-tags">
+              <span>
+                <Heart size={15} /> 순위 대신 함께 성장
+              </span>
+              <span>
+                <Ship size={15} /> 교역으로 연결되는 섬
+              </span>
+            </div>
+          </section>
+          <section className="entry-card">
+            <span className="card-kicker">새로운 세계로, 입장</span>
+            <h2>어느 서버에서 만날까요?</h2>
+            <ServerPicker regionId={regionId} district={district} onChange={chooseServer} disabled={busy} />
+            <div className="segmented">
+              <button
+                className={role === "teacher" ? "selected" : ""}
+                onClick={() => setRole("teacher")}
+              >
+                <Flag size={17} /> 선생님
+              </button>
+              <button
+                className={role === "student" ? "selected" : ""}
+                onClick={() => setRole("student")}
+              >
+                <Users size={17} /> 학생
+              </button>
+            </div>
+            <label>
+              접속 방식
+              <select
+                aria-label="접속 방식"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as any)}
+              >
+                <option value="firebase">실시간 수업 · Firebase</option>
+                <option value="local">같은 기기에서 연습</option>
+              </select>
+            </label>
+            {role === "teacher" && <div className="classroom-fields">
+              <label>학교 이름<input aria-label="학교 이름" value={school} maxLength={40} placeholder="예: 한빛초등학교" onChange={e => setSchool(e.target.value)}/></label>
+              <label>학급<input aria-label="학급" value={className} maxLength={24} placeholder="예: 6학년 2반" onChange={e => setClassName(e.target.value)}/></label>
+              <label>학급 대표 건물<select aria-label="학급 대표 건물" value={buildingCountry} onChange={e => setBuildingCountry(e.target.value)}>{cfg.countries.map((c: any) => <option key={c.id} value={c.id}>{c.building.name}</option>)}</select></label>
+              <small>학교·학급 이름과 대표 건축 진행률이 대한민국 월드에 표시돼요.</small>
+            </div>}
+            {role === "student" ? (
+              <>
+                <label>
+                  방 코드
+                  <input
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="숫자 4자리"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  />
+                </label>
+                <label>
+                  나의 별명
+                  <input
+                    maxLength={16}
+                    placeholder="실명 대신 별명을 적어요"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                  />
+                </label>
+              </>
             ) : (
-              <div className="max-w-md w-full mx-auto bg-emerald-900/70 border border-emerald-800 rounded-3xl p-6 md:p-8 shadow-2xl backdrop-blur-xl">
-                <div className="text-center mb-6">
-                  <span className="text-5xl">🧭</span> 
-                  <h2 className="text-2xl font-black text-white mt-2">입장 룸코드 개설 및 설정</h2>
-                  <p className="text-emerald-300 text-xs mt-1 leading-relaxed">
-                    다른 학급 및 다른 분반과 분리된 나만의 퀴즈 경기장을 개설합니다.<br />
-                    아래에 원하시는 코드명을 지정하거나 무작위 코드를 만드세요.
+              <div className="entry-info">
+                <Compass size={24} />
+                <div>
+                  <b>3개 나라 · {cfg.rounds}라운드</b>
+                  <p>
+                    방을 만든 뒤 코드나 QR을 공유해요.
+                    <br />
+                    인원은 7~40명, 첫 체험은 3명도 가능해요.
                   </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-emerald-200 mb-1.5 text-center">개설할 룸코드 (숫자 또는 영어 단어 지정 가능)</label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        maxLength={12}
-                        value={roomCode} 
-                        onChange={(e) => setRoomCode(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))} 
-                        placeholder="예: 2026, class-a, room-601"
-                        required 
-                        className="flex-1 bg-emerald-950 border border-emerald-700 rounded-xl px-4 py-3 text-white text-center text-lg font-mono font-bold uppercase" 
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const randCode = Math.floor(1000 + Math.random() * 9000).toString();
-                          setRoomCode(randCode);
-                        }}
-                        className="bg-emerald-800 hover:bg-emerald-700 text-yellow-300 text-xs font-bold px-3 py-2 rounded-xl border border-emerald-700 cursor-pointer active:scale-95 transition"
-                        title="임의의 4자리 숫자 생성"
-                      >
-                        무작위 생성
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 pt-2">
-                    <button 
-                      type="button"
-                      onClick={() => setIsTeacherCodeSetup(false)} 
-                      className="w-1/3 bg-emerald-950 hover:bg-emerald-900 text-emerald-200 font-bold py-3 px-2 rounded-xl border border-emerald-800 text-xs cursor-pointer"
-                    >
-                      이전으로
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        if (!roomCode.trim()) {
-                          alert("개설할 대기실 룸코드를 입력해주세요!");
-                          return;
-                        }
-                        setRole("TEACHER");
-                        setGameState("LOBBY");
-                      }} 
-                      className="flex-1 bg-gradient-to-tr from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-emerald-950 font-black py-3 px-4 rounded-xl text-sm shadow-md cursor-pointer active:scale-95 transition"
-                    >
-                      채널 개설 및 경기 대기실 시작
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
+            {error && (
+              <div className="notice" role="alert">
+                {error}
+              </div>
+            )}
+            <button
+              className="primary wide"
+              disabled={
+                busy ||
+                (role === "student" && (code.length !== 4 || !nickname.trim())) ||
+                (role === "teacher" && (!school.trim() || !className.trim()))
+              }
+              onClick={() => enter()}
+            >
+              {busy
+                ? "연결하는 중…"
+                : role === "teacher"
+                  ? "우리 교실 방 만들기"
+                  : "함께 시작하기"}
+              <ArrowRight size={18} />
+            </button>
+            <div className="entry-divider">
+              <span>설정 없이 먼저 둘러보고 싶다면</span>
+            </div>
+            <button
+              className="secondary wide"
+              disabled={busy}
+              onClick={() => enter(true)}
+            >
+              <Play size={16} /> 혼자 체험하기
+            </button>
+            <p className="micro">
+              {configured()
+                ? "Firebase 연결 설정이 준비되어 있어요."
+                : "Firebase 설정 전이에요. 혼자 체험하기는 바로 가능해요."}
+            </p>
+          </section>
+          {atlasOpen && <section className="landing-atlas"><Suspense fallback={<div className="island-loading">대한민국을 펼치고 있어요…</div>}><KoreaWorld regions={regions()} buildings={campuses} selectedRegion={regionId} selectedServer={selectedServer} onSelectRegion={id => chooseServer(id, regions().find(r => r.id === id)!.districts[0])}/></Suspense>{directoryError && <p role="alert">공동 월드 연결을 확인해 주세요: {directoryError}</p>}<p className="micro">{mode === "local" || !configured() ? "연습 지도에는 이 브라우저에서 만든 학급만 표시돼요." : "대한민국 지도에 공유된 학급 건물이에요."}</p></section>}
+        </main>
+      ) : deleted ? (
+        <main className="empty-room">
+          <Trash2 size={40} />
+          <h1>선생님이 이 방을 삭제했어요.</h1>
+          <p>새 수업 코드를 받아 다시 입장해 주세요.</p>
+          <button className="primary" onClick={exit}>
+            접속 화면으로
+          </button>
+        </main>
+      ) : !w ? (
+        <main className="empty-room">
+          <RefreshCw className="spin" />
+          <h2>우리 세계를 불러오고 있어요…</h2>
+          {error && (
+            <div role="alert" className="notice">
+              {error}
+              <button onClick={exit}>다시 입장</button>
+            </div>
+          )}
+        </main>
+      ) : (
+        <>
+          {w.classroom && <div className="server-banner"><span><b>{regions().find(r => r.id === w.classroom!.regionId)?.short} · {w.classroom.district} 서버</b> / {w.classroom.school} · {w.classroom.className}</span><button onClick={() => setTab("korea")}><Globe2 size={16}/>대한민국 월드</button><button onClick={exit}>서버 바꾸기</button></div>}
+          <div className="world-strip">
+            <div className="world-title">
+              <Globe2 size={22} />
+              <div>
+                <small>함께 만드는 세계</small>
+                <b>세계 건축 진행률</b>
+              </div>
+            </div>
+            <div className="world-meter">
+              <div style={{ width: pct(worldProgress(w)) }} />
+            </div>
+            <strong>{pct(worldProgress(w))}</strong>
+            <div className="world-phase">
+              <span>
+                {w.round || "준비"}
+                {w.round ? ` / ${w.config.rounds}라운드` : ""}
+              </span>
+              <b>{phaseNames[w.phase]}</b>
+              <span className="time-display">
+                {w.phaseEnd
+                  ? `${String(Math.floor(time / 60)).padStart(2, "0")}:${String(time % 60).padStart(2, "0")}`
+                  : "—"}
+              </span>
+            </div>
+            <div className="room-chip">
+              방 코드 <b>{w.code}</b>
+            </div>
           </div>
-        )}
-
-        {/* 👨‍🏫 교사 UI */}
-        {role === "TEACHER" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            <div className={`${gameState === "FINISHED" ? "lg:col-span-12" : "lg:col-span-8"} flex flex-col space-y-6`}>
-              
-              {gameState === "LOBBY" && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl flex flex-col justify-between flex-1">
-                  <div>
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-emerald-800/60 pb-4 mb-5 gap-3">
-                      <div>
-                        <h3 className="text-2xl font-black text-white">교실 대기실 (선수 소집처)</h3>
-                        <p className="text-xs text-emerald-300 mt-1">실시간으로 아이들의 기기와 연동됩니다.</p>
-                      </div>
-                      <div className="bg-yellow-400 text-emerald-950 px-5 py-2.5 rounded-xl font-black text-center shadow-md">
-                        <span className="block text-[10px] text-emerald-800 font-bold">입장 룸 코드</span>
-                        <span className="text-2xl font-mono font-black">{roomCode}</span>
-                      </div>
+          <div className="workspace">
+            <aside className="rail">
+              <button
+                aria-label="우리 섬"
+                className={tab === "island" ? "active" : ""}
+                onClick={() => setTab("island")}
+              >
+                <Compass />
+                <span>우리 섬</span>
+              </button>
+              <button
+                aria-label="세계 지도"
+                className={tab === "world" ? "active" : ""}
+                onClick={() => setTab("world")}
+              >
+                <Globe2 />
+                <span>세계 지도</span>
+              </button>
+              <button aria-label="대한민국 월드" className={tab === "korea" ? "active" : ""} onClick={() => setTab("korea")}><Globe2/><span>대한민국</span></button>
+              <button
+                aria-label="교역 기록"
+                className={tab === "records" ? "active" : ""}
+                onClick={() => setTab("records")}
+              >
+                <BookOpen />
+                <span>기록</span>
+              </button>
+              {host && (
+                <button
+                  aria-label="교사 화면"
+                  className={tab === "teacher" ? "active" : ""}
+                  onClick={() => setTab("teacher")}
+                >
+                  <Settings2 />
+                  <span>선생님</span>
+                </button>
+              )}
+              <div className="rail-bottom">
+                <span className="dot" />
+                <small>{session.demo ? "체험 세계" : "공유 세계"}</small>
+              </div>
+            </aside>
+            <main className="game-main">
+              {error && (
+                <div className="notice" role="alert">
+                  {error}
+                  <button aria-label="알림 닫기" onClick={() => setError("")}>
+                    <X size={17} />
+                  </button>
+                </div>
+              )}
+              {session.demo && (
+                <div className="demo-bar">
+                  <span>
+                    <Sparkles size={16} /> 혼자 체험 · 세 나라 학생을 번갈아
+                    조작할 수 있어요.
+                  </span>
+                  <select
+                    aria-label="체험 역할"
+                    value={pilot}
+                    onChange={(e) => {
+                      setPilot(e.target.value);
+                      setStudentView(true);
+                      if (e.target.value !== "teacher") requestGameFullscreen();
+                      if (e.target.value !== "teacher")
+                        setViewCountry(w.players[e.target.value].country);
+                    }}
+                  >
+                    <option value="teacher">선생님 체험</option>
+                    {Object.values(w.players).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {
+                          w.config.countries.find(
+                            (c: any) => c.id === p.country,
+                          )?.short
+                        }{" "}
+                        학생 · {p.nickname}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {tab === "korea" && <section className="korea-page">
+                <div className="page-title"><div className="overline">학교와 학교가 만나는 곳</div><h1>대한민국 공동 월드</h1><p>학급마다 대표 건물 하나를 세워요. 지도에서 다른 학교의 건축 진행률도 볼 수 있어요.</p></div>
+                <ServerPicker regionId={regionId} district={district} onChange={chooseServer}/>
+                <p className="micro">지도 서버 선택은 구경할 지역을 바꿔요. 입장 서버를 바꾸려면 위의 ‘서버 바꾸기’를 눌러 주세요.</p>
+                <Suspense fallback={<div className="island-loading">대한민국을 펼치고 있어요…</div>}><KoreaWorld regions={regions()} buildings={campuses} selectedRegion={regionId} selectedServer={selectedServer} onSelectRegion={id => chooseServer(id, regions().find(r => r.id === id)!.districts[0])}/></Suspense>
+                {directoryError && <p className="notice" role="alert">공동 월드 연결을 확인해 주세요: {directoryError}</p>}
+                <p className="micro">{session.mode === "local" ? "같은 기기 연습 · 이 브라우저에서 만든 학급만 표시돼요." : "실시간 공동 월드 · 교사 화면에서 건축 진행률을 공유해요."} 현재 수업에서는 선택한 나라의 건축 목표를 학급 대표 건물로 표시합니다.</p>
+              </section>}
+              {tab === "island" && (
+                <>
+                  {w.phase === "lobby" && !host ? (
+                    <div className="waiting-card">
+                      <Users size={34} />
+                      <h2>{p?.nickname || nickname}, 반가워요!</h2>
+                      <p>
+                        {p?.country
+                          ? `${w.config.countries.find((c: any) => c.id === p.country)?.name}에 배정되었어요.`
+                          : "선생님이 나라를 배정하고 있어요."}
+                      </p>
+                      <p>
+                        같은 나라 친구와 어떤 역할을 맡을지 이야기해 보세요.
+                      </p>
                     </div>
-
-                    <div className="mt-4">
-                      <div className="flex justify-between items-center mb-3">
-                        <span className="text-sm font-bold text-emerald-200 flex items-center gap-1.5"><Users className="w-4 h-4 text-amber-400" /> 대기 중인 인원 ({students.length}명)</span>
-                        {students.length < 20 && (
-                          <button onClick={handleAddDemoStudents} className="text-xs bg-emerald-800 hover:bg-emerald-700 text-yellow-300 font-bold px-3 py-1.5 rounded-lg border border-emerald-700/80 flex items-center gap-1"><UserPlus className="w-3.5 h-3.5" /> 테스트용 가상 학생 채우기</button>
-                        )}
-                      </div>
-
-                      {students.length === 0 ? (
-                        <div className="border border-emerald-800/40 border-dashed rounded-2xl py-12 text-center text-emerald-400 text-sm flex flex-col items-center justify-center space-y-2">
-                          <Users className="w-8 h-8 opacity-30 text-emerald-200 animate-pulse" />
-                          <p>현재 입장한 학생이 없습니다. 다른 기기로 코드 [{roomCode}]를 쳐서 들어오거나 위 데모 단추를 눌러보세요.</p>
+                  ) : (
+                    <>
+                      <div className="island-heading">
+                        <div>
+                          <div className="overline">
+                            {spec?.biome} ·{" "}
+                            {p ? `${p.nickname}의 나라` : "섬 둘러보기"}
+                          </div>
+                          <h1>
+                            {spec?.name}{" "}
+                            <span
+                              className="nation-dot"
+                              style={{ background: spec?.color }}
+                            />
+                          </h1>
                         </div>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-[250px] overflow-y-auto">
-                          {students.map((student, idx) => (
-                            <div key={student.id} className="bg-emerald-800/40 border border-emerald-700/50 rounded-xl p-3 flex flex-col items-center text-center shadow-sm relative overflow-hidden group">
-                              <span className="text-xl mb-1">🏃</span> <span className="text-xs font-bold text-white truncate max-w-full">{student.name}</span>
-                              <span className="text-[10px] text-emerald-300 mt-1 font-mono">No.{idx + 1}</span>
-                              <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400"></div>
+                        <div className="island-heading-right">
+                          {!p && (
+                            <select
+                              aria-label="보는 섬"
+                              value={viewCountry}
+                              onChange={(e) => setViewCountry(e.target.value)}
+                            >
+                              {w.config.countries.map((c: any) => (
+                                <option value={c.id} key={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {p && (
+                            <div className="stamina">
+                              <Heart size={17} />
+                              <b>{p.stamina}</b>
+                              <small>/ {w.config.stamina} 체력</small>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-8 border-t border-emerald-800/60 pt-5 flex items-center justify-between">
-                    <span className="text-xs text-emerald-400">* 정원이 소집되면 우측 버튼을 눌러 본 게임 주파수를 전송하십시오.</span>
-                    <button onClick={handleStartGame} disabled={students.length === 0} className={`font-black px-8 py-3.5 rounded-2xl shadow-xl flex items-center gap-2 ${students.length > 0 ? "bg-amber-500 hover:bg-amber-400 text-emerald-950 cursor-pointer" : "bg-emerald-800 text-emerald-600 cursor-not-allowed"}`}>
-                      <Play className="w-5 h-5 fill-current" /> 경기 개시 (수업 시작)
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {gameState === "PLAYING" && quizQuestions[currentQuestionIndex] && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl flex-1 flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-center border-b border-emerald-800/50 pb-4 mb-4">
-                      <div>
-                        <span className="text-xs bg-amber-500/20 text-yellow-300 font-bold px-2.5 py-1 rounded-full">문제 {currentQuestionIndex + 1} / 20</span>
-                        <h4 className="text-xl font-bold mt-2 text-white">정답 국가 : <span className="text-yellow-300 underline">{quizQuestions[currentQuestionIndex].country.name}</span> ({quizQuestions[currentQuestionIndex].country.continent})</h4>
-                      </div>
-                      <div className="flex items-center space-x-2 text-white font-mono font-bold bg-emerald-950/80 border border-emerald-800 px-4 py-2 rounded-xl">
-                        <Clock className={`w-5 h-5 ${timeLeft < 10 ? "text-red-400 animate-bounce" : "text-amber-400"}`} /> <span className="text-xl">{timeLeft}s</span>
-                      </div>
-                    </div>
-
-                    <div className="h-2 bg-emerald-950 rounded-full overflow-hidden mb-6">
-                      <div className={`h-full transition-all duration-1000 ${timeLeft < 10 ? "bg-red-500" : "bg-gradient-to-r from-amber-500 to-yellow-400"}`} style={{ width: `${(timeLeft / 60) * 100}%` }}></div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-                      <div className={`p-3 rounded-xl border ${isHint1Active ? "bg-emerald-800/50 border-amber-500/50" : "text-emerald-600"}`}>
-                        <span className="text-xs font-black block text-amber-400 mb-1">힌트 1 (30점)</span>
-                        <p className="text-xs text-white line-clamp-2">{quizQuestions[currentQuestionIndex].country.hint1}</p>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${isHint2Active ? "bg-emerald-800/50 border-amber-500/50" : "text-emerald-600"}`}>
-                        <span className="text-xs font-black block text-amber-400 mb-1">힌트 2 (25점)</span>
-                        <p className="text-xs text-white line-clamp-2">{isHint2Active ? quizQuestions[currentQuestionIndex].country.hint2 : "🔒 대기..."}</p>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${isHint3Active ? "bg-emerald-800/50 border-amber-500/50" : "text-emerald-600"}`}>
-                        <span className="text-xs font-black block text-amber-400 mb-1">힌트 3 (20점)</span>
-                        <p className="text-xs text-white line-clamp-2">{isHint3Active ? quizQuestions[currentQuestionIndex].country.hint3 : "🔒 대기..."}</p>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${isHint4Active ? "bg-emerald-800/50 border-amber-500/50" : "text-emerald-600"}`}>
-                        <span className="text-xs font-black block text-red-400 mb-1">지리 백지도 (15점)</span>
-                        <p className="text-xs text-white line-clamp-2">{isHint4Active ? `🧭 위치 포인터 가동` : "🔒 잠금"}</p>
-                      </div>
-                    </div>
-
-                    {isHint4Active && (
-                      <div className="bg-emerald-950 rounded-2xl p-4 border border-emerald-800/60 mb-6 flex flex-col md:flex-row gap-4 items-center">
-                        <div className="flex-1 w-full">
-                          <canvas ref={canvasRef} width={500} height={250} className="bg-emerald-900 border border-emerald-800/80 rounded-xl w-full h-[180px]" />
-                        </div>
-                        <div className="md:w-[220px] bg-emerald-900/40 p-4 rounded-xl border border-emerald-800/50 text-xs">
-                          <span className="text-yellow-300 font-bold block mb-1">🎯 정밀 위경도 매칭</span>
-                          <span className="font-mono text-white block bg-emerald-950 p-2 rounded border border-emerald-800">{quizQuestions[currentQuestionIndex].country.hint4Range}</span>
+                          )}
+                          <button
+                            className={
+                              origin ? "origin-button on" : "origin-button"
+                            }
+                            onClick={() => setOrigin(!origin)}
+                          >
+                            <Layers size={16} /> 원산지{" "}
+                            {origin ? "켜짐" : "보기"}
+                          </button>
                         </div>
                       </div>
-                    )}
-
-                    <div className="mt-4">
-                      <h6 className="text-xs font-bold text-emerald-200 mb-2">선수단 개별 슛 제출 현황 ({students.filter(s => s.lastAnswerCorrect !== null).length}명 마감)</h6>
-                      <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto">
-                        {students.map((student) => {
-                          const hasAnswered = student.lastAnswerCorrect !== null;
-                          return (
-                            <span key={student.id} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1 border ${hasAnswered ? "bg-green-950/70 text-green-300 border-green-700/60" : "bg-emerald-900/20 text-emerald-400 border-emerald-800/40"}`}>
-                              <span className={`w-2 h-2 rounded-full ${hasAnswered ? student.lastAnswerCorrect ? "bg-emerald-400" : "bg-red-400" : "bg-emerald-600 animate-pulse"}`}></span>
-                              {student.name} {hasAnswered && `(${student.lastAnswerCorrect ? `+${getPointsForTime(student.lastAnsweredAt || 0)}점` : "0점"})`}
+                      <div className="phase-banner">
+                        <span>
+                          {w.phase === "activity"
+                            ? time > 0
+                              ? "자원을 탭하면 다가가서 채집해요. 시설에서는 만들기를 눌러요."
+                              : "활동 시간이 끝났어요. 선생님의 단계 전환을 기다려요."
+                            : w.phase === "meeting"
+                              ? "회의 시간 · 이동은 잠시 쉬고, 필요한 자원과 교역 계획을 이야기해요."
+                              : w.phase === "settlement"
+                                ? "정산 시간 · 이번 교역이 서로에게 어떤 도움이 되었는지 기록해요."
+                                : w.phase === "ended"
+                                  ? "함께 만든 건물의 원산지를 살펴보며 우리 세계를 돌아봐요."
+                                  : "선생님 화면에서 학생을 배정하고 1라운드를 시작해 주세요."}
+                        </span>
+                        <span className="event-tag">
+                          {w.round === 1
+                            ? "국경 닫힘"
+                            : w.config.events.find(
+                                (e: any) => e.id === w.event.id,
+                              )?.name}
+                        </span>
+                      </div>
+                      {p &&
+                        Object.values(w.offers).some(
+                          (o) => o.to === cid && o.status === "open",
+                        ) && (
+                          <div className="incoming-trade">
+                            <Ship size={20} />
+                            <span>
+                              다른 나라에서 교역 제안이 왔어요. 나라 친구들과
+                              함께 살펴보세요.
                             </span>
-                          );
-                        })}
+                            <button
+                              className="secondary"
+                              onClick={() => setPanel("trade")}
+                            >
+                              제안 보기
+                            </button>
+                          </div>
+                        )}
+                      <div className="island-layout">
+                        <section
+                          className="map-card"
+                          style={
+                            {
+                              "--map-aspect":
+                                w.config.map.width / w.config.map.height,
+                            } as any
+                          }
+                        >
+                          <div className="map-top">
+                            <span>
+                              <Flag size={15} /> {spec?.building.name}
+                            </span>
+                            <b>{pct(progress(w, cid))} 완성</b>
+                          </div>
+                          <Island
+                            world={w}
+                            country={cid}
+                            positions={env!.positions}
+                            uid={actor}
+                            origin={origin}
+                            selected={selected}
+                            mining={mining}
+                            firstPerson={immersive && rendererType !== "2d" ? look : undefined}
+                            onLook={(dx: number, dy: number) => setLook(l => ({yaw: l.yaw - dx * .005, pitch: Math.max(-1.15, Math.min(1.05, l.pitch - dy * .005))}))}
+                            onAim={setAim}
+                            onRenderer={setRendererType}
+                            onSelect={tap}
+                          />
+                          {w.trades.some((t) => clock - t.at < 2500) && (
+                            <div className="boat-flight">
+                              <Ship size={24} />
+                              <span>교역이 이루어졌어요!</span>
+                            </div>
+                          )}
+                          <div className="map-bottom">
+                            <span>
+                              <span className="avatar-marker" />{" "}
+                              {p
+                                ? "파란 아바타가 나예요"
+                                : "선생님은 모든 섬을 볼 수 있어요"}
+                            </span>
+                            <span>
+                              {mining
+                                ? "자원을 채집하고 있어요…"
+                                : moving
+                                  ? "이동 중…"
+                                  : "자원을 탭하면 이동해서 채집해요"}
+                            </span>
+                          </div>
+                          {p && (
+                            <div className="joystick" aria-label="이동 버튼">
+                              <button
+                                aria-label="위로 이동"
+                                disabled={!active || moving || !!mining}
+                                onClick={() => step(0, -1)}
+                              >
+                                <ArrowUp />
+                              </button>
+                              <div>
+                                <button
+                                  aria-label="왼쪽으로 이동"
+                                  disabled={!active || moving || !!mining}
+                                  onClick={() => step(-1, 0)}
+                                >
+                                  <ArrowLeft />
+                                </button>
+                                <span />
+                                <button
+                                  aria-label="오른쪽으로 이동"
+                                  disabled={!active || moving || !!mining}
+                                  onClick={() => step(1, 0)}
+                                >
+                                  <ArrowRight />
+                                </button>
+                              </div>
+                              <button
+                                aria-label="아래로 이동"
+                                disabled={!active || moving || !!mining}
+                                onClick={() => step(0, 1)}
+                              >
+                                <ArrowDown />
+                              </button>
+                            </div>
+                          )}
+                          {selectedNode && (
+                            <div className="tile-action">
+                              <div>
+                                <b>
+                                  {w.config.goods[selectedNode.good].name} 블록
+                                </b>
+                                <small>
+                                  {adjacent(pos, selectedNode)
+                                    ? p?.stamina === 0 ? "체력을 모두 썼어요" : mining ? "조금만 기다리면 창고에 들어가요" : "바로 옆에 도착했어요"
+                                    : "가까이 이동하고 있어요"}
+                                </small>
+                              </div>
+                              <button
+                                className="primary"
+                                disabled={
+                                  !editable ||
+                                  moving ||
+                                  !adjacent(pos, selectedNode) ||
+                                  !p?.stamina
+                                }
+                                onClick={() =>
+                                  act({ type: "mine", node: selectedNode.id })
+                                }
+                              >
+                                <Hammer size={17} />{" "}
+                                {busy ? "캐는 중…" : "캐기 · 체력 1"}
+                              </button>
+                            </div>
+                          )}
+                          {selectedSite?.unit && (
+                            <div className="origin-detail">
+                              <Layers size={18} />
+                              <div>
+                                <b>
+                                  {w.config.goods[selectedSite.good].name}의
+                                  여행
+                                </b>
+                                <p>{origins(w, selectedSite.unit)}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="map-legend">
+                            <span>▧ 자원</span>
+                            <span>▨ 가공 시설</span>
+                            <span>▱ 건축 부지</span>
+                            <span>⚑ 항구</span>
+                          </div>
+                        </section>
+                        <aside className="side-panel">
+                          <div className="panel-tabs">
+                            {[
+                              ["warehouse", "창고", Box],
+                              ["craft", "조합", Hammer],
+                              ["trade", "교역", Ship],
+                              ["build", "건축", Layers],
+                            ].map(([id, label, I]) => (
+                              <button
+                                key={id as string}
+                                className={panel === id ? "active" : ""}
+                                onClick={() => setPanel(id as string)}
+                              >
+                                <I size={18} />
+                                {label as string}
+                              </button>
+                            ))}
+                          </div>
+                          {panel === "warehouse" && (
+                            <>
+                              <div className="side-title">
+                                <h2>우리 나라 공동 창고</h2>
+                                <span className="gold-chip">
+                                  {country?.gold} G
+                                </span>
+                              </div>
+                              <p className="side-help">
+                                친구들이 모은 블록을 함께 사용해요.
+                              </p>
+                              <Inventory w={w} country={cid} />
+                              <div className="teaching-note">
+                                <Compass size={18} />
+                                <p>
+                                  우리 섬에는{" "}
+                                  <b>
+                                    {Object.keys(spec?.regen || {})
+                                      .map((g) => w.config.goods[g].name)
+                                      .join(", ")}
+                                  </b>
+                                  이 있어요. 없는 블록은 어디서 구할까요?
+                                </p>
+                              </div>
+                              <h3>같은 나라 친구들</h3>
+                              <div className="team-list">
+                                {Object.values(w.players)
+                                  .filter((p) => p.country === cid)
+                                  .map((p) => (
+                                    <span key={p.id}>
+                                      {p.nickname}
+                                      <small>♥ {p.stamina}</small>
+                                    </span>
+                                  ))}
+                              </div>
+                            </>
+                          )}
+                          {panel === "craft" && (
+                            <>
+                              <div className="side-title">
+                                <h2>블록 조합하기</h2>
+                                <Hammer size={20} />
+                              </div>
+                              <p className="side-help">
+                                시설 옆에 서서 창고의 재료를 가공해요.
+                              </p>
+                              {Object.entries(w.config.recipes).map(
+                                ([good, r]: [string, any]) => {
+                                  const facility =
+                                    country?.facilities[r.facility];
+                                  const enough = Object.entries(r.inputs).every(
+                                    ([g, n]) =>
+                                      country.stock[g].length >= Number(n),
+                                  );
+                                  return (
+                                    <div
+                                      className={
+                                        "recipe-card " +
+                                        (!facility ? "locked" : "")
+                                      }
+                                      key={good}
+                                    >
+                                      <div className="recipe-heading">
+                                        <BlockIcon w={w} good={good} />
+                                        <b>
+                                          {w.config.goods[good].name} {r.output}
+                                          개
+                                        </b>
+                                        <span>
+                                          {facility ? (
+                                            <Hammer size={15} />
+                                          ) : (
+                                            <Lock size={15} />
+                                          )}
+                                        </span>
+                                      </div>
+                                      <p>
+                                        {Object.entries(r.inputs)
+                                          .map(
+                                            ([g, n]) =>
+                                              `${w.config.goods[g].name} ${n}`,
+                                          )
+                                          .join(" + ")}
+                                      </p>
+                                      {!facility ? (
+                                        <small>
+                                          🔒 {w.config.facilities[r.facility]}가
+                                          있는 나라:{" "}
+                                          {w.config.countries
+                                            .filter(
+                                              (c: any) =>
+                                                w.countries[c.id].facilities[
+                                                  r.facility
+                                                ],
+                                            )
+                                            .map((c: any) => c.short)
+                                            .join(", ")}
+                                        </small>
+                                      ) : (
+                                        <button
+                                          className="secondary wide"
+                                          disabled={
+                                            !editable ||
+                                            !enough ||
+                                            !adjacent(pos, facility)
+                                          }
+                                          onClick={() =>
+                                            act({ type: "craft", good })
+                                          }
+                                        >
+                                          {adjacent(pos, facility)
+                                            ? "만들기"
+                                            : `${w.config.facilities[r.facility]} 옆으로 이동`}
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                },
+                              )}
+                            </>
+                          )}
+                          {panel === "build" && (
+                            <>
+                              <div className="side-title">
+                                <h2>{spec?.building.name}</h2>
+                                <span>{pct(progress(w, cid))}</span>
+                              </div>
+                              <p className="side-help">
+                                청사진 칸 옆에서 필요한 블록을 놓아요.
+                              </p>
+                              {Object.entries(spec?.building.needs || {}).map(
+                                ([g, n]) => (
+                                  <div className="goal-row" key={g}>
+                                    <BlockIcon w={w} good={g} />
+                                    <span>{w.config.goods[g].name}</span>
+                                    <b>
+                                      {
+                                        Object.values(country.sites).filter(
+                                          (s) => s.good === g && s.unit,
+                                        ).length
+                                      }{" "}
+                                      / {Number(n)}
+                                    </b>
+                                  </div>
+                                ),
+                              )}
+                              {selectedSite && !selectedSite.unit && (
+                                <button
+                                  className="primary wide"
+                                  disabled={
+                                    !editable ||
+                                    moving ||
+                                    !adjacent(pos, selectedSite) ||
+                                    !country.stock[selectedSite.good].length
+                                  }
+                                  onClick={() =>
+                                    act({
+                                      type: "build",
+                                      site: selectedSite.id,
+                                    })
+                                  }
+                                >
+                                  <Plus size={18} />
+                                  {w.config.goods[selectedSite.good].name} 놓기
+                                </button>
+                              )}
+                              <div className="teaching-note">
+                                <Ship size={19} />
+                                <p>
+                                  우리 나라만으로는 완성할 수 없어요. 다른 섬의
+                                  자원과 기술을 빌려 함께 지어요.
+                                </p>
+                              </div>
+                            </>
+                          )}
+                          {panel === "trade" && (
+                            <>
+                              <div className="side-title">
+                                <h2>항구 교역</h2>
+                                <Anchor size={20} />
+                              </div>
+                              {closeReason ? (
+                                <div className="locked-port">
+                                  <Lock size={27} />
+                                  <h3>잠시 닫힌 항구</h3>
+                                  <p>{closeReason}</p>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="side-help">
+                                    서로에게 필요한 것을 나눠요. 두 나라 모두
+                                    팀원 과반의 동의가 필요해요.
+                                  </p>
+                                  <label>
+                                    상대 나라
+                                    <select
+                                      value={
+                                        to === cid
+                                          ? w.config.countries.find(
+                                              (c: any) => c.id !== cid,
+                                            ).id
+                                          : to
+                                      }
+                                      onChange={(e) => setTo(e.target.value)}
+                                    >
+                                      {w.config.countries
+                                        .filter((c: any) => c.id !== cid)
+                                        .map((c: any) => (
+                                          <option value={c.id} key={c.id}>
+                                            {c.name}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </label>
+                                  <BasketForm
+                                    w={w}
+                                    title="우리가 줄 것"
+                                    value={give}
+                                    onChange={setGive}
+                                  />
+                                  <BasketForm
+                                    w={w}
+                                    title="받고 싶은 것"
+                                    value={receive}
+                                    onChange={setReceive}
+                                  />
+                                  <div className="trade-preview">
+                                    우리 시설에서 가공하면 예상 진행률
+                                    <br />
+                                    <b>
+                                      {pct(
+                                        tradePotential(w, cid, give, receive)
+                                          .percentBefore,
+                                      )}{" "}
+                                      →{" "}
+                                      {pct(
+                                        tradePotential(w, cid, give, receive)
+                                          .percentAfter,
+                                      )}
+                                    </b>
+                                    <small>
+                                      보유 블록과 우리 시설로 만들 수 있는 블록
+                                      기준이에요.
+                                    </small>
+                                  </div>
+                                  <button
+                                    className="primary wide"
+                                    disabled={!editable || !atPort}
+                                    onClick={() =>
+                                      act({
+                                        type: "offer",
+                                        to:
+                                          to === cid
+                                            ? w.config.countries.find(
+                                                (c: any) => c.id !== cid,
+                                              ).id
+                                            : to,
+                                        give,
+                                        receive,
+                                        ...(counterOf ? { counterOf } : {}),
+                                      })
+                                    }
+                                  >
+                                    {atPort
+                                      ? "교역 제안 보내기"
+                                      : "항구로 먼저 이동해 주세요"}
+                                    <ArrowRight size={17} />
+                                  </button>
+                                  {counterOf && (
+                                    <p className="micro">
+                                      이전 제안의 역제안을 작성 중이에요.{" "}
+                                      <button onClick={() => setCounterOf("")}>
+                                        새 제안으로 전환
+                                      </button>
+                                    </p>
+                                  )}
+                                </>
+                              )}
+                              <h3 className="offers-title">우리 나라의 제안</h3>
+                              {Object.values(w.offers)
+                                .filter((o) => o.from === cid || o.to === cid)
+                                .reverse()
+                                .map((o) => (
+                                  <div className="offer-card" key={o.id}>
+                                    <div>
+                                      <b>
+                                        {
+                                          w.config.countries.find(
+                                            (c: any) => c.id === o.from,
+                                          ).short
+                                        }{" "}
+                                        ↔{" "}
+                                        {
+                                          w.config.countries.find(
+                                            (c: any) => c.id === o.to,
+                                          ).short
+                                        }
+                                      </b>
+                                      <span
+                                        className={"offer-status " + o.status}
+                                      >
+                                        {
+                                          (
+                                            {
+                                              open: "회의 중",
+                                              accepted: "체결",
+                                              rejected: "거절",
+                                              expired: "지난 라운드",
+                                              cancelled: "취소",
+                                              countered: "역제안됨",
+                                            } as any
+                                          )[o.status]
+                                        }
+                                      </span>
+                                    </div>
+                                    <p>
+                                      {offerText(o.give)}
+                                      <br />⇄ {offerText(o.receive)}
+                                    </p>
+                                    <small>
+                                      {[o.from, o.to]
+                                        .map((id) => {
+                                          const team = Object.values(
+                                            w.players,
+                                          ).filter((p) => p.country === id);
+                                          return `${w.config.countries.find((c: any) => c.id === id).short}: 동의 ${team.filter((p) => o.votes[p.id] === true).length}/${Math.floor(team.length / 2) + 1}`;
+                                        })
+                                        .join(" · ")}
+                                    </small>
+                                    {o.status === "open" && (
+                                      <>
+                                        <div className="offer-votes">
+                                          <button
+                                            className={
+                                              "secondary " +
+                                              (o.votes[actor] === true
+                                                ? "chosen"
+                                                : "")
+                                            }
+                                            disabled={
+                                              !editable || !!closeReason
+                                            }
+                                            onClick={() =>
+                                              act({
+                                                type: "vote",
+                                                offer: o.id,
+                                                agree: true,
+                                              })
+                                            }
+                                          >
+                                            <Check size={16} /> 동의
+                                          </button>
+                                          <button
+                                            className="quiet"
+                                            disabled={
+                                              !editable || !!closeReason
+                                            }
+                                            onClick={() =>
+                                              act({
+                                                type: "vote",
+                                                offer: o.id,
+                                                agree: false,
+                                              })
+                                            }
+                                          >
+                                            반대
+                                          </button>
+                                          <button
+                                            className="quiet"
+                                            disabled={
+                                              !editable || !!closeReason
+                                            }
+                                            onClick={() => counter(o)}
+                                          >
+                                            역제안
+                                          </button>
+                                        </div>
+                                        {o.from === cid && (
+                                          <button
+                                            className="cancel-offer"
+                                            disabled={!editable}
+                                            onClick={() =>
+                                              act({
+                                                type: "cancelOffer",
+                                                offer: o.id,
+                                              })
+                                            }
+                                          >
+                                            제안 취소
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              {!Object.values(w.offers).some(
+                                (o) => o.from === cid || o.to === cid,
+                              ) && (
+                                <p className="micro">
+                                  아직 제안이 없어요. 다른 나라에 필요한 것을
+                                  물어보세요.
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </aside>
                       </div>
-                    </div>
+                      {["settlement", "meeting"].includes(w.phase) &&
+                        p &&
+                        reflectedRound > 0 && (
+                          <section className="reflection-card">
+                            <div>
+                              <div className="overline">
+                                우리의 교역을 돌아보기
+                              </div>
+                              <h2>{reflectedRound}라운드 성찰 기록</h2>
+                              <p>답을 제출해야 다음 라운드 체력이 채워져요.</p>
+                            </div>
+                            <div className="reflection-fields">
+                              {questions.map((q: string, i: number) => (
+                                <label key={q}>
+                                  {q}
+                                  <textarea
+                                    maxLength={500}
+                                    value={answers[i] || ""}
+                                    onChange={(e) =>
+                                      setAnswers((prev) =>
+                                        questions.map((_: string, k: number) =>
+                                          k === i
+                                            ? e.target.value
+                                            : prev[k] || "",
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </label>
+                              ))}
+                              <button
+                                className="primary"
+                                disabled={
+                                  busy ||
+                                  answers.length !== questions.length ||
+                                  answers.some((a) => !a.trim())
+                                }
+                                onClick={() =>
+                                  act({ type: "reflect", answers })
+                                }
+                              >
+                                {w.reflections[String(reflectedRound)]?.[actor]
+                                  ? "답 수정하기"
+                                  : "성찰 제출"}
+                                <Check size={18} />
+                              </button>
+                            </div>
+                          </section>
+                        )}
+                      <Activity w={w} />
+                    </>
+                  )}
+                </>
+              )}
+              {tab === "world" && (
+                <>
+                  <div className="page-title">
+                    <div className="overline">세 나라, 하나의 세계</div>
+                    <h1>서로의 섬을 들여다봐요.</h1>
+                    <p>어느 나라에 필요한 자원과 가공 기술이 있을까요?</p>
                   </div>
-
-                  <div className="mt-8 border-t border-emerald-800/50 pt-4 flex justify-between items-center">
-                    <span className="text-xs text-emerald-300">* 정답 상황을 전광판에 충분히 해설한 뒤 다음 퀴즈를 송출하세요.</span>
-                    <button onClick={handleNextQuestion} className="bg-amber-500 hover:bg-amber-400 text-emerald-950 font-black px-6 py-3 rounded-xl flex items-center gap-1.5 shadow-md">
-                      <span>다음 퀴즈 송출</span> <ChevronRight className="w-4 h-4" />
+                  <div className="world-grid">
+                    {w.config.countries.map((c: any) => (
+                      <section className="world-island-card" key={c.id}>
+                        <div className="panel-heading">
+                          <h2>
+                            <span
+                              className="nation-dot"
+                              style={{ background: c.color }}
+                            />
+                            {c.name}
+                          </h2>
+                          <b>{pct(progress(w, c.id))}</b>
+                        </div>
+                        <Island
+                          world={w}
+                          country={c.id}
+                          positions={env!.positions}
+                          origin={origin}
+                          mini
+                        />
+                        <div className="world-island-info">
+                          <b>{c.building.name}</b>
+                          <p>
+                            시설:{" "}
+                            {Object.keys(w.countries[c.id].facilities)
+                              .map((f) => w.config.facilities[f])
+                              .join(", ")}
+                          </p>
+                          <p>
+                            자원:{" "}
+                            {Object.keys(c.regen)
+                              .map((g) => w.config.goods[g].name)
+                              .join(", ")}
+                          </p>
+                          <span>
+                            함께하는 친구{" "}
+                            {
+                              Object.values(w.players).filter(
+                                (p) => p.country === c.id,
+                              ).length
+                            }
+                            명
+                          </span>
+                        </div>
+                        <div className="mini-progress">
+                          <div
+                            style={{
+                              width: pct(progress(w, c.id)),
+                              background: c.color,
+                            }}
+                          />
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                  <div className="cooperation-callout">
+                    <Heart size={25} />
+                    <div>
+                      <h2>우리 건물 안에는 다른 나라가 들어 있어요.</h2>
+                      <p>
+                        원산지 보기를 켜고 완성된 블록을 살펴보세요. 자원과
+                        기술이 함께 여행했어요.
+                      </p>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() => setOrigin(!origin)}
+                    >
+                      <Layers size={18} />
+                      원산지 {origin ? "끄기" : "보기"}
                     </button>
                   </div>
-                </div>
+                </>
               )}
-
-              {gameState === "FINISHED" && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl text-center">
-                  <div className="py-6">
-                    <div className="inline-block bg-gradient-to-tr from-yellow-400 to-amber-500 text-emerald-950 p-4 rounded-3xl mb-4"><Trophy className="w-16 h-16 animate-bounce" /></div>
-                    <h3 className="text-3xl font-black text-white">경기 종료! 월드컵 대 시상식</h3>
-                    <p className="text-emerald-300 text-sm mt-1">지리 고지를 극복하고 황금 골든부트를 차지한 최강 명사수 명단!</p>
-
-                    {/* 종합 포디움 연단 */}
-                    <div className="mt-12 max-w-lg mx-auto flex items-end justify-center gap-4 h-[260px] pb-4">
-                      {podiumStudents[1] && (
-                        <div className="flex flex-col items-center w-1/3">
-                          <span className="text-sm font-extrabold text-gray-300">{podiumStudents[1].name}</span>
-                          <span className="text-xs text-emerald-200">{podiumStudents[1].score}점</span>
-                          <div className="w-full bg-gradient-to-t from-gray-400 to-gray-200 text-emerald-950 font-black rounded-t-xl h-[120px] flex flex-col items-center justify-center shadow-lg border border-gray-300/60 mt-2">
-                            <span className="text-4xl">🥈</span> <span className="text-sm uppercase">2nd</span>
-                          </div>
-                        </div>
-                      )}
-                      {podiumStudents[0] && (
-                        <div className="flex flex-col items-center w-1/3">
-                          <span className="text-base font-black text-yellow-300">{podiumStudents[0].name}</span>
-                          <span className="text-xs text-emerald-100">{podiumStudents[0].score}점</span>
-                          <div className="w-full bg-gradient-to-t from-amber-500 to-yellow-300 text-emerald-950 font-black rounded-t-xl h-[170px] flex flex-col items-center justify-center shadow-2xl mt-2 relative">
-                            <span className="absolute -top-7 text-3xl animate-bounce">👑</span> <span className="text-5xl">🥇</span> <span className="text-lg uppercase tracking-wider">1st</span>
-                          </div>
-                        </div>
-                      )}
-                      {podiumStudents[2] && (
-                        <div className="flex flex-col items-center w-1/3">
-                          <span className="text-sm font-extrabold text-amber-700">{podiumStudents[2].name}</span>
-                          <span className="text-xs text-emerald-200">{podiumStudents[2].score}점</span>
-                          <div className="w-full bg-gradient-to-t from-amber-800 to-amber-600 text-emerald-950 font-black rounded-t-xl h-[90px] flex flex-col items-center justify-center shadow-lg border border-amber-700/60 mt-2">
-                            <span className="text-4xl">🥉</span> <span className="text-sm uppercase">3rd</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 명예의 전당 Top 5 명단 */}
-                    <div className="mt-8 max-w-xl mx-auto bg-emerald-950/80 border border-emerald-800/80 rounded-2xl p-5 shadow-inner">
-                      <h4 className="text-sm font-black text-amber-300 mb-4 border-b border-emerald-800/60 pb-2">🎖️ 종합 명예의 전당 (Top 5 최종 순위)</h4>
-                      <div className="space-y-2">
-                        {topFiveStudents.map((s, idx) => (
-                          <div key={s.id} className="flex items-center justify-between p-3 rounded-xl bg-emerald-900/40 border border-emerald-800/30">
-                            <span className="text-sm font-bold text-white">{idx + 1}위 - {s.name}</span>
-                            <span className="font-mono text-yellow-300 font-extrabold">{s.score}점 ({s.solvedCount}번 완료)</span>
+              {tab === "teacher" && host && (
+                <>
+                  <div className="page-title">
+                    <div className="overline">선생님의 수업 도구</div>
+                    <h1>오늘의 작은 세계를 운영해요.</h1>
+                    <p>
+                      학생의 회의와 협상에 시간을 주세요. 활동 판정 중에는 이
+                      화면을 계속 열어 두세요.
+                    </p>
+                  </div>
+                  <div className="teacher-top">
+                    <section className="card join-card">
+                      <div>
+                        <h2>학생 초대하기</h2>
+                        <p>같은 링크에서 방 코드와 별명을 입력해요.</p>
+                        <strong className="big-code">{w.code}</strong>
+                        <p>
+                          {session.mode === "local"
+                            ? "연습 모드는 같은 브라우저 탭에서만 연결돼요."
+                            : "QR로 링크를 열고, 실명 대신 별명을 사용해요."}
+                        </p>
+                      </div>
+                      {qr && <img src={qr} alt="학생 접속 QR 코드" />}
+                    </section>
+                    <section className="card phase-control">
+                      <div className="panel-heading">
+                        <h2>{phaseNames[w.phase]} 단계</h2>
+                        <span>{Object.keys(w.players).length}명 참여</span>
+                      </div>
+                      <div className="phase-steps">
+                        {["meeting", "activity", "settlement"].map((s) => (
+                          <div
+                            className={w.phase === s ? "current" : ""}
+                            key={s}
+                          >
+                            <span>{phaseNames[s]}</span>
+                            <small>{w.config.phaseSeconds[s] / 60}분</small>
                           </div>
                         ))}
                       </div>
-                    </div>
+                      <button
+                        className="primary wide"
+                        disabled={busy || w.phase === "ended"}
+                        onClick={() => act({ type: "next" }, true)}
+                      >
+                        <Play size={18} />
+                        {w.phase === "lobby"
+                          ? "1라운드 회의 시작"
+                          : w.phase === "meeting"
+                            ? "활동 시작"
+                            : w.phase === "activity"
+                              ? "정산으로 넘어가기"
+                              : w.round >= w.config.rounds
+                                ? "수업 마치기"
+                                : `${w.round + 1}라운드 회의 시작`}
+                      </button>
+                      <p className="micro">
+                        타이머는 안내용이에요. 다음 단계는 선생님이 직접 열어요.
+                      </p>
+                    </section>
                   </div>
-
-                  <div className="border-t border-emerald-800/60 pt-5 mt-6"><button onClick={handleResetAll} className="bg-emerald-800 hover:bg-emerald-700 text-white font-bold px-8 py-3 rounded-2xl border border-emerald-700 shadow-md flex items-center gap-2 mx-auto"><RefreshCw className="w-4 h-4" /> 새 대기실 개설 (재경기)</button></div>
-                </div>
-              )}
-            </div>
-
-            {/* 우측 실시간 참여명단 레이아웃 */}
-            {gameState !== "FINISHED" && (
-              <div className="lg:col-span-4 flex flex-col">
-                <div className="bg-emerald-900/50 border border-emerald-800/80 rounded-2xl p-5 shadow-2xl flex flex-col h-full justify-between">
-                  <div>
-                    <h4 className="text-base font-black text-yellow-300 mb-4 flex items-center justify-between"><span><Users className="w-5 h-5 text-amber-400 inline mr-2" />우리 반 소집 명단</span></h4>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                      {[...students].sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((student) => (
-                        <div key={student.id} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/30">
-                          <span className="text-sm font-bold text-emerald-100">⚽ {student.name}</span>
-                          <span className="text-[10px] text-emerald-400 border border-emerald-800 bg-emerald-950/80 px-2 py-0.5 rounded-full font-bold">라인업 가입됨</span>
+                  <section className="card">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>나라별 학생 배정</h2>
+                        <p>
+                          자동 배정 뒤 학생을 끌어 옮기거나 나라 선택으로
+                          수정해요.
+                        </p>
+                      </div>
+                      <button
+                        className="secondary"
+                        disabled={busy || w.phase !== "lobby"}
+                        onClick={() => act({ type: "autoAssign" }, true)}
+                      >
+                        <Users size={18} />
+                        자동 배정
+                      </button>
+                    </div>
+                    <div className="assignment-grid">
+                      {[
+                        { id: "", name: "아직 배정 전", color: "#a5acb4" },
+                        ...w.config.countries,
+                      ].map((c: any) => (
+                        <div
+                          className="assignment-column"
+                          key={c.id}
+                          data-country={c.id}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const id = e.dataTransfer.getData("text/plain");
+                            if (c.id)
+                              act(
+                                { type: "assign", player: id, country: c.id },
+                                true,
+                              );
+                          }}
+                        >
+                          <h3>
+                            <span
+                              className="nation-dot"
+                              style={{ background: c.color }}
+                            />
+                            {c.name}
+                            <small>
+                              {
+                                Object.values(w.players).filter(
+                                  (p) => p.country === c.id,
+                                ).length
+                              }
+                              명
+                            </small>
+                          </h3>
+                          {Object.values(w.players)
+                            .filter((p) => p.country === c.id)
+                            .map((p) => (
+                              <div
+                                className="student-chip"
+                                key={p.id}
+                                draggable={w.phase === "lobby"}
+                                onDragStart={(e) =>
+                                  e.dataTransfer.setData("text/plain", p.id)
+                                }
+                              >
+                                <span
+                                  className="drag-handle"
+                                  onPointerDown={(e) =>
+                                    e.currentTarget.setPointerCapture(
+                                      e.pointerId,
+                                    )
+                                  }
+                                  onPointerUp={(e) => {
+                                    if (w.phase !== "lobby") return;
+                                    const drop = document
+                                      .elementFromPoint(e.clientX, e.clientY)
+                                      ?.closest(
+                                        "[data-country]",
+                                      ) as HTMLElement;
+                                    const country = drop?.dataset.country;
+                                    if (country)
+                                      act(
+                                        {
+                                          type: "assign",
+                                          player: p.id,
+                                          country,
+                                        },
+                                        true,
+                                      );
+                                  }}
+                                >
+                                  ⠿
+                                </span>
+                                <span>{p.nickname}</span>
+                                <select
+                                  aria-label={`${p.nickname} 나라 배정`}
+                                  disabled={busy || w.phase !== "lobby"}
+                                  value={p.country}
+                                  onChange={(e) =>
+                                    act(
+                                      {
+                                        type: "assign",
+                                        player: p.id,
+                                        country: e.target.value,
+                                      },
+                                      true,
+                                    )
+                                  }
+                                >
+                                  <option value="" disabled>
+                                    선택
+                                  </option>
+                                  {w.config.countries.map((c: any) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.short}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
                         </div>
                       ))}
                     </div>
-                  </div>
-                  <div className="mt-5 pt-4 border-t border-emerald-800/50 text-xs text-amber-200">
-                    ⚽ 20개 매치가 모두 종료되는 순간 오프라인 대형 전광판 시상대가 전면 활성화됩니다!
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 🏃 학생 UI */}
-        {role === "STUDENT" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            <div className={`${gameState === "FINISHED" ? "lg:col-span-12" : "lg:col-span-8"} flex flex-col justify-between flex-1`}>
-              
-              {!isRegistered && (
-                <div className="max-w-md w-full mx-auto bg-emerald-900/60 border border-emerald-800/80 rounded-3xl p-6 md:p-8 shadow-2xl">
-                  <div className="text-center mb-6">
-                    <span className="text-5xl">⚽</span> <h3 className="text-2xl font-black text-white mt-2">월드컵 탐구 선수단 등록</h3>
-                    <p className="text-xs text-emerald-300">선생님이 칠판에 적어주신 룸 코드와 이름(등번호)을 입력하세요.</p>
-                  </div>
-                  <form onSubmit={handleJoinRoom} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-emerald-200 mb-1">룸 코드 (숫자 또는 영어)</label>
-                      <input 
-                        type="text" 
-                        maxLength={12}
-                        value={roomCode} 
-                        onChange={(e) => setRoomCode(e.target.value.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase())} 
-                        placeholder="예: 2026 또는 대기실 코드"
-                        required 
-                        className="w-full bg-emerald-950 border border-emerald-700 rounded-xl px-4 py-3 text-white text-center text-lg font-mono font-bold uppercase placeholder:text-emerald-800" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-emerald-200 mb-1">학생 이름 (본명)</label>
-                      <input type="text" maxLength={10} value={studentName} onChange={(e) => setStudentName(e.target.value)} placeholder="예: 박서윤" required className="w-full bg-emerald-950 border border-emerald-700 rounded-xl px-4 py-3 text-white text-center font-bold" />
-                    </div>
-                    <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-emerald-950 font-black py-4 rounded-2xl flex items-center justify-center gap-1.5 cursor-pointer"><UserCheck className="w-5 h-5" /> 그라운드 입장하기</button>
-                  </form>
-                </div>
-              )}
-
-              {isRegistered && gameState === "LOBBY" && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-8 shadow-2xl text-center flex flex-col items-center justify-center space-y-4 flex-1 font-sans">
-                  <span className="text-6xl animate-bounce">🏃⚽</span>
-                  <h4 className="text-2xl font-black text-white">{studentName} 선수, 소집 완료!</h4>
-                  <p className="text-emerald-300 text-sm">선생님 전광판에 명단이 등록되었습니다. 전술 호각이 울릴 때까지 잠시 대기하세요.</p>
-                  <div className="bg-emerald-950/80 px-6 py-3 rounded-xl border border-emerald-800 text-sm">
-                    <span className="text-xs text-emerald-400 block font-bold">배정된 룸 채널</span>
-                    <span className="text-lg font-mono text-yellow-300 font-black tracking-widest">{roomCode}</span>
-                  </div>
-                </div>
-              )}
-
-              {isRegistered && gameState === "PLAYING" && quizQuestions[currentQuestionIndex] && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl flex-1 flex flex-col justify-between space-y-5">
-                  <div>
-                    <div className="flex justify-between items-center border-b border-emerald-800/50 pb-3 mb-4">
-                      <div><span className="text-xs bg-emerald-800 text-yellow-300 border border-emerald-700 px-3 py-1 rounded-full font-bold">매치 No.{currentQuestionIndex + 1}</span></div>
-                      <div className="flex items-center space-x-3">
-                        <div className="text-right">
-                          <span className="text-[10px] text-emerald-400 block font-bold">내 누적 스코어</span>
-                          <span className="text-xs font-black text-yellow-300 font-mono">{myCurrentScore}점 ({myCurrentSolvedCount}회 제출)</span>
-                        </div>
-                        <div className="flex items-center space-x-1 font-mono text-white font-bold bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-800 text-xs">
-                          <Clock className="w-3.5 h-3.5 text-amber-400" /> <span>{timeLeft}s</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="h-2 bg-emerald-950 rounded-full overflow-hidden mb-5">
-                      <div className={`h-full transition-all duration-1000 ${timeLeft < 10 ? "bg-red-500" : "bg-gradient-to-r from-amber-500 to-yellow-400"}`} style={{ width: `${(timeLeft / 60) * 100}%` }}></div>
-                    </div>
-
-                    <div className="bg-emerald-950/80 rounded-2xl p-5 border border-emerald-800/50 space-y-3">
-                      <span className="text-yellow-400 font-extrabold text-xs flex items-center gap-1"><Compass className="w-3.5 h-3.5" /> 6학년 대륙 단서 브리핑</span>
-                      <div className="space-y-2 text-sm text-white">
-                        {isHint1Active && <div className="flex items-start gap-2"><span className="bg-amber-500/20 text-yellow-300 text-[10px] px-1.5 py-0.5 rounded font-bold">단서1</span><p>{quizQuestions[currentQuestionIndex].country.hint1}</p></div>}
-                        {isHint2Active ? <div className="flex items-start gap-2 border-t border-emerald-900 pt-2"><span className="bg-amber-500/20 text-yellow-300 text-[10px] px-1.5 py-0.5 rounded font-bold">단서2</span><p>{quizQuestions[currentQuestionIndex].country.hint2}</p></div> : <p className="text-xs text-emerald-600 italic">🔒 잠시 후 (경과 10초) 2단계 문화·체육 단서가 추가 해금됩니다.</p>}
-                        {isHint3Active ? <div className="flex items-start gap-2 border-t border-emerald-900 pt-2"><span className="bg-amber-500/20 text-yellow-300 text-[10px] px-1.5 py-0.5 rounded font-bold">단서3</span><p>{quizQuestions[currentQuestionIndex].country.hint3}</p></div> : isHint2Active && <p className="text-xs text-emerald-600 italic">🔒 잠시 후 (경과 20초) 3단계 세부 핵심 단서가 해금됩니다.</p>}
-                        {isHint4Active ? (
-                          <div className="flex flex-col space-y-2 pt-2 border-t border-emerald-900">
-                            <div className="flex items-start gap-2"><span className="bg-red-500/20 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-bold">백지도</span><p className="text-xs text-emerald-200">정답 국가 좌표스케일: {quizQuestions[currentQuestionIndex].country.hint4Range}</p></div>
-                            <canvas ref={canvasRef} width={500} height={230} className="bg-emerald-900 border border-emerald-800/80 rounded-xl w-full h-[140px]" />
-                          </div>
-                        ) : isHint3Active && <p className="text-xs text-rose-400 italic font-bold animate-pulse">🔒 잠시 후 (경과 30초) 4단계 세계 백지도 정밀 타겟 범위가 최종 해금됩니다!</p>}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 p-3 rounded-xl text-xs font-bold border bg-emerald-950/60 text-emerald-300 border-emerald-800/40">
-                      <span>{feedbackMsg}</span>
-                    </div>
-
-                    <div className="mt-5 space-y-2">
-                      <span className="text-xs text-emerald-300 font-bold block">슈팅 영역: 타겟 국가를 골라 슛을 날리세요! (단 1회)</span>
-                      <div className="grid grid-cols-1 gap-2">
-                        {quizQuestions[currentQuestionIndex].options.map((option, idx) => {
-                          const isSelected = selectedOption === option;
-                          const isBtnDisabled = hasSubmitted || timeLeft <= 0;
-                          const isAnswer = option === quizQuestions[currentQuestionIndex].country.name;
-
-                          let btnClass = "";
-                          if (timeLeft <= 0) {
-                            if (isAnswer) btnClass = "bg-green-900/80 border-green-500 text-white ring-2 ring-yellow-400 font-extrabold";
-                            else if (isSelected) btnClass = "bg-red-900/80 border-red-500 text-white opacity-80";
-                            else btnClass = "bg-emerald-950/30 border-emerald-900/50 text-emerald-600 opacity-50 cursor-not-allowed";
-                          } else {
-                            if (isSelected) btnClass = "bg-amber-900/80 border-amber-500 text-white ring-1 ring-amber-400";
-                            else if (hasSubmitted) btnClass = "bg-emerald-950/30 border-emerald-900/50 text-emerald-600 opacity-80 cursor-not-allowed";
-                            else btnClass = "bg-emerald-800/50 hover:bg-emerald-800 border-emerald-700 text-white";
+                  </section>
+                  <div className="teacher-bottom">
+                    <section className="card">
+                      <div className="panel-heading">
+                        <h2>다음 라운드 이벤트</h2>
+                        <button
+                          className="quiet"
+                          disabled={!["lobby", "settlement"].includes(w.phase)}
+                          onClick={() =>
+                            setEvent({
+                              ...event,
+                              id: w.config.events[
+                                Math.floor(
+                                  Math.random() * w.config.events.length,
+                                )
+                              ].id,
+                            })
                           }
-
-                          return (
-                            <button key={idx} disabled={isBtnDisabled} onClick={() => { if(!isBtnDisabled) handleSubmitAnswer(option); }} className={`w-full text-left p-3 rounded-xl font-bold transition flex items-center justify-between border ${btnClass}`}>
-                              <span className="flex items-center space-x-3">
-                                <span className={`text-xs w-6 h-6 rounded-full flex items-center justify-center border ${timeLeft <= 0 && isAnswer ? "bg-yellow-400 text-emerald-950 font-black" : "bg-emerald-950/60 text-emerald-300"}`}>{idx + 1}</span>
-                                <span className="text-sm">{option}</span>
-                              </span>
-                              {timeLeft <= 0 ? isAnswer ? <span className="text-xs text-yellow-300 font-black">★ 정답 오픈 ★</span> : isSelected ? <span className="text-xs text-red-300">내 슈팅 오답</span> : null : isSelected && <span className="text-xs text-amber-300 font-black">제출 완료</span>}
-                            </button>
-                          );
-                        })}
+                        >
+                          <RefreshCw size={17} />
+                          무작위
+                        </button>
                       </div>
-                    </div>
+                      <div className="event-form">
+                        <label>
+                          이벤트
+                          <select
+                            value={event.id}
+                            onChange={(e) =>
+                              setEvent({ ...event, id: e.target.value })
+                            }
+                          >
+                            {w.config.events.map((e: any) => (
+                              <option key={e.id} value={e.id}>
+                                {e.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          대상 나라
+                          <select
+                            value={event.country}
+                            onChange={(e) =>
+                              setEvent({ ...event, country: e.target.value })
+                            }
+                          >
+                            {w.config.countries.map((c: any) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          원료
+                          <select
+                            value={event.good}
+                            onChange={(e) =>
+                              setEvent({ ...event, good: e.target.value })
+                            }
+                          >
+                            {Object.entries(w.config.goods)
+                              .filter(([, g]: any) => g.raw)
+                              .map(([id, g]: any) => (
+                                <option key={id} value={id}>
+                                  {g.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        <label>
+                          새 시설
+                          <select
+                            value={event.facility}
+                            onChange={(e) =>
+                              setEvent({ ...event, facility: e.target.value })
+                            }
+                          >
+                            {Object.entries(w.config.facilities).map(
+                              ([id, n]: any) => (
+                                <option key={id} value={id}>
+                                  {n}
+                                </option>
+                              ),
+                            )}
+                          </select>
+                        </label>
+                      </div>
+                      <p>
+                        {
+                          w.config.events.find((e: any) => e.id === event.id)
+                            ?.description
+                        }
+                      </p>
+                      <button
+                        className="secondary"
+                        disabled={
+                          busy || !["lobby", "settlement"].includes(w.phase)
+                        }
+                        onClick={() => act({ type: "event", event }, true)}
+                      >
+                        다음 라운드에 적용
+                      </button>
+                      <p className="micro">
+                        선택됨:{" "}
+                        {
+                          w.config.events.find(
+                            (e: any) => e.id === w.pendingEvent.id,
+                          )?.name
+                        }{" "}
+                        · 첫 라운드는 항상 국경이 닫혀요.
+                      </p>
+                    </section>
+                    <section className="card">
+                      <h2>수업 관리</h2>
+                      <p>
+                        최근 행동만 취소할 수 있어요. 이전 거래를 되돌리면
+                        뒤따른 거래까지 영향을 줄 수 있기 때문이에요.
+                      </p>
+                      <button
+                        className="secondary wide"
+                        disabled={busy || !w.undo}
+                        onClick={() => act({ type: "undo" }, true)}
+                      >
+                        <RefreshCw size={17} />
+                        최근 행동 취소
+                      </button>
+                      {w.undo && <p className="micro">{w.undo.label}</p>}
+                      <button
+                        className="secondary wide"
+                        onClick={() => setTab("world")}
+                      >
+                        <Globe2 size={18} />
+                        세계 현황판 보기
+                      </button>
+                      <button
+                        className="secondary wide"
+                        onClick={() =>
+                          download(
+                            `NATIONLAB-${w.code}-성찰.csv`,
+                            reflectionCSV(w),
+                          )
+                        }
+                      >
+                        <Download size={18} />
+                        성찰 답 CSV 내보내기
+                      </button>
+                      <button
+                        className="quiet wide"
+                        onClick={() =>
+                          download(
+                            `NATIONLAB-${w.code}-결과.json`,
+                            JSON.stringify(
+                              {
+                                code: w.code,
+                                round: w.round,
+                                countries: w.countries,
+                                trades: w.trades,
+                                reflections: w.reflections,
+                              },
+                              null,
+                              2,
+                            ),
+                            "application/json",
+                          )
+                        }
+                      >
+                        <Download size={18} />
+                        게임 결과 내보내기
+                      </button>
+                      <div className="danger-row">
+                        <button
+                          className="danger"
+                          disabled={busy || w.phase === "ended"}
+                          onClick={() => setConfirm("end")}
+                        >
+                          게임 종료
+                        </button>
+                        <button
+                          className="danger"
+                          disabled={busy}
+                          onClick={() => setConfirm("delete")}
+                        >
+                          <Trash2 size={16} />방 데이터 삭제
+                        </button>
+                      </div>
+                    </section>
                   </div>
-                </div>
-              )}
-
-              {isRegistered && gameState === "FINISHED" && (
-                <div className="bg-emerald-900/60 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl text-center flex flex-col justify-between">
-                  <div>
-                    <div className="inline-block bg-gradient-to-tr from-yellow-400 to-amber-500 text-emerald-950 p-4 rounded-3xl mb-4"><Trophy className="w-12 h-12" /></div>
-                    <h3 className="text-2xl font-black text-white">모든 매치 종료! 종합 시상대</h3>
-                    <p className="text-emerald-300 text-sm">20개 고지를 향해 멋진 레이스를 펼쳤습니다. 전방 전광판 시상식을 확인하세요!</p>
-                    <div className="bg-emerald-950/80 p-4 rounded-xl border border-emerald-800/50 max-w-sm mx-auto mt-4 text-xs">
-                      <p className="font-bold text-emerald-200">🏃 나의 종합 성적 레코드</p>
-                      <p className="text-emerald-300 mt-1">최종 획득 스코어: <strong className="text-yellow-300 text-base font-mono">{(students.find(s => s.id === myId)?.score || 0)}점</strong></p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 학생 화면의 실시간 동료 라인업 명단 */}
-            {gameState !== "FINISHED" && (
-              <div className="lg:col-span-4 flex flex-col">
-                <div className="bg-emerald-900/50 border border-emerald-800/80 rounded-2xl p-5 shadow-2xl flex flex-col h-full justify-between">
-                  <div>
-                    <h4 className="text-sm font-black text-yellow-300 mb-3"><span>🏃 나와 함께 뛰는 선수단 ({students.length}명)</span></h4>
-                    <div className="space-y-1.5 max-h-[450px] overflow-y-auto">
-                      {[...students].sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((student) => {
-                        const isMe = student.id === myId;
-                        return (
-                          <div key={student.id} className={`flex items-center justify-between p-2 rounded-lg border ${isMe ? "bg-yellow-400/10 border-yellow-500/50 text-white font-extrabold" : "bg-emerald-950/40 border-emerald-800/30"}`}>
-                            <span className={`text-xs ${isMe ? "text-yellow-300 font-extrabold" : "text-emerald-100"}`}>{isMe ? "⭐" : "⚽"} {student.name} {isMe && "(나)"}</span>
-                            <span className="text-[9px] bg-emerald-950 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-800">커넥션 정상</span>
+                  <section className="card">
+                    <h2>나라별 창고와 건축</h2>
+                    <div className="teacher-stocks">
+                      {w.config.countries.map((c: any) => (
+                        <div key={c.id}>
+                          <div className="panel-heading">
+                            <h3>{c.name}</h3>
+                            <b>{pct(progress(w, c.id))}</b>
                           </div>
-                        );
-                      })}
+                          <Inventory w={w} country={c.id} />
+                        </div>
+                      ))}
                     </div>
+                  </section>
+                  <Activity w={w} />
+                </>
+              )}
+              {tab === "records" && (
+                <>
+                  <div className="page-title">
+                    <div className="overline">
+                      블록이 오간 길, 생각이 자란 기록
+                    </div>
+                    <h1>우리 세계의 이야기</h1>
+                    <p>
+                      교역은 어떤 도움을 주었나요? 서로의 기록에서 찾아보세요.
+                    </p>
                   </div>
-                </div>
-              </div>
-            )}
+                  <section className="card">
+                    <h2>교역 기록</h2>
+                    {w.trades.length ? (
+                      w.trades.map((t) => (
+                        <div className="trade-record" key={t.id}>
+                          <span className="round-pill">{t.round}R</span>
+                          <Ship size={21} />
+                          <div>
+                            <b>
+                              {
+                                w.config.countries.find(
+                                  (c: any) => c.id === t.from,
+                                ).name
+                              }{" "}
+                              ↔{" "}
+                              {
+                                w.config.countries.find(
+                                  (c: any) => c.id === t.to,
+                                ).name
+                              }
+                            </b>
+                            <p>
+                              {offerText(t.give)} ⇄ {offerText(t.receive)}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="empty-note">
+                        아직 체결된 교역이 없어요. 항구가 열리면 교역을 시작해
+                        보세요.
+                      </div>
+                    )}
+                  </section>
+                  {host && (
+                    <section className="card">
+                      <div className="panel-heading">
+                        <h2>학생 성찰 기록</h2>
+                        <div className="inline-controls">
+                          <select
+                            aria-label="성찰 라운드"
+                            value={filterRound}
+                            onChange={(e) => setFilterRound(e.target.value)}
+                          >
+                            <option value="all">모든 라운드</option>
+                            {Array.from({ length: w.config.rounds }, (_, i) => (
+                              <option key={i} value={i + 1}>
+                                {i + 1}라운드
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              download(
+                                `NATIONLAB-${w.code}-성찰.csv`,
+                                reflectionCSV(w),
+                              )
+                            }
+                          >
+                            <Download size={18} />
+                            CSV
+                          </button>
+                        </div>
+                      </div>
+                      {Object.entries(w.reflections)
+                        .filter(
+                          ([r]) => filterRound === "all" || filterRound === r,
+                        )
+                        .map(([r, entries]) => (
+                          <div key={r}>
+                            <h3 className="reflection-round">{r}라운드</h3>
+                            {w.config.countries.map((c: any) => (
+                              <div key={c.id}>
+                                <h4>{c.name}</h4>
+                                {Object.values(entries)
+                                  .filter((a) => a.country === c.id)
+                                  .map((a, i) => (
+                                    <div className="reflection-answer" key={i}>
+                                      <b>{a.nickname}</b>
+                                      {a.answers.map((answer, j) => (
+                                        <p key={j}>
+                                          <small>
+                                            {
+                                              (Number(r) === 1
+                                                ? w.config.reflections.first
+                                                : w.config.reflections.regular)[
+                                                j
+                                              ]
+                                            }
+                                          </small>
+                                          {answer}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  ))}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      {!Object.keys(w.reflections).length && (
+                        <div className="empty-note">
+                          정산 단계에서 학생들이 작성한 답이 여기에 모여요.
+                        </div>
+                      )}
+                    </section>
+                  )}
+                  <Activity w={w} />
+                </>
+              )}
+            </main>
           </div>
-        )}
-      </main>
-
-      <footer className="bg-emerald-950/90 py-3 text-center text-[10px] text-emerald-600 border-t border-emerald-900/60 z-10">
-        <p>© 2026 월드컵 본선 진출국 탐구 융합 플랫폼 - 실시간 동기화 완료</p>
-      </footer>
+          <footer className="nl-footer">
+            NATIONLAB · 자원도 기술도, 나누면 더 커지는 세계
+            <span>몬스터도 순위도 없이, 함께 완성하는 우리 교실</span>
+          </footer>
+        </>
+      )}
+      {guide && (
+        <div className="modal-backdrop">
+          <section className="modal">
+            <button
+              className="modal-close icon-button"
+              aria-label="안내 닫기"
+              onClick={() => setGuide(false)}
+            >
+              <X />
+            </button>
+            <div className="overline">작은 세계의 약속</div>
+            <h1>함께 완성하면, 모두의 성공이에요.</h1>
+            <div className="guide-step">
+              <span>01</span>
+              <div>
+                <h3>자원과 기술이 다른 세 나라</h3>
+                <p>
+                  화련은 목화와 광석, 사하르는 석유와 모래, 히노미는 나무와
+                  용광로가 있어요. 우리에게 없는 것은 친구 나라에 있어요.
+                </p>
+              </div>
+            </div>
+            <div className="guide-step">
+              <span>02</span>
+              <div>
+                <h3>회의 → 활동 → 정산</h3>
+                <p>
+                  활동 시간에 블록 옆으로 이동해서 캐요. 체력은 라운드마다{" "}
+                  {cfg.stamina}이고, 채굴할 때 1씩 줄어요. 시설 옆에서 가공하고
+                  건축 부지에 놓아요.
+                </p>
+              </div>
+            </div>
+            <div className="guide-step">
+              <span>03</span>
+              <div>
+                <h3>항구에서 협상하기</h3>
+                <p>
+                  1라운드는 국경이 닫혀요. 2라운드부터 줄 것과 받을 것을
+                  제안하고, 두 나라 팀원 과반이 동의하면 교역이 이루어져요. G도
+                  함께 교환할 수 있어요.
+                </p>
+              </div>
+            </div>
+            <div className="guide-step">
+              <span>04</span>
+              <div>
+                <h3>원산지와 생각을 돌아보기</h3>
+                <p>
+                  완성된 블록은 어디서 왔을까요? 원산지 보기를 켜고 다른 나라의
+                  도움을 찾아보세요. 정산에서 성찰을 제출해야 다음 체력이
+                  채워져요.
+                </p>
+              </div>
+            </div>
+            <div className="teaching-note">
+              <p>
+                실시간 수업에는 Firebase 설정이 필요해요. 교사 화면을 수업 중
+                계속 열어 두세요. 같은 태블릿의 같은 브라우저로 재접속하면
+                별명과 나라가 복원돼요.
+              </p>
+            </div>
+          </section>
+        </div>
+      )}
+      {confirm && (
+        <div className="modal-backdrop">
+          <section className="modal confirm-modal">
+            <h2>
+              {confirm === "delete"
+                ? "방 데이터를 모두 삭제할까요?"
+                : confirm === "end"
+                  ? "이 수업을 마칠까요?"
+                  : "접속 화면으로 돌아갈까요?"}
+            </h2>
+            <p>
+              {confirm === "delete"
+                ? "학생 별명, 창고, 교역, 성찰 답이 모두 삭제돼요. 필요하면 먼저 결과를 내보내세요."
+                : confirm === "end"
+                  ? "모든 학생의 활동이 멈춰요. 결과와 성찰은 계속 볼 수 있어요."
+                  : "현재 게임은 남아 있어요. 같은 방 코드로 다시 들어올 수 있어요."}
+            </p>
+            <div className="confirm-actions">
+              <button className="secondary" onClick={() => setConfirm("")}>
+                돌아가기
+              </button>
+              <button
+                className={confirm === "delete" ? "danger" : "primary"}
+                disabled={busy}
+                onClick={async () => {
+                  if (confirm === "exit") exit();
+                  else if (confirm === "end") await act({ type: "end" }, true);
+                  else if (session) {
+                    setBusy(true);
+                    try {
+                      await deleteRoom(session);
+                      exit();
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }
+                  setConfirm("");
+                }}
+              >
+                확인
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
+function BlockIcon({ w, good }: { w: World; good: string }) {
+  return (
+    <span
+      className="block-icon"
+      style={{ background: w.config.goods[good].color }}
+    />
+  );
+}
+function Inventory({ w, country }: { w: World; country: string }) {
+  return (
+    <div className="inventory-grid">
+      {Object.entries(w.config.goods).map(([id, g]: any) => (
+        <div key={id}>
+          <BlockIcon w={w} good={id} />
+          <span>{g.name}</span>
+          <b>{w.countries[country].stock[id].length}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+function BasketForm({
+  w,
+  title,
+  value,
+  onChange,
+}: {
+  w: World;
+  title: string;
+  value: Basket;
+  onChange: (b: Basket) => void;
+}) {
+  const [good, setGood] = useState("wood");
+  return (
+    <div className="basket-form">
+      <h3>{title}</h3>
+      <div className="basket-input">
+        <select
+          aria-label={title + " 품목"}
+          value={good}
+          onChange={(e) => setGood(e.target.value)}
+        >
+          {Object.entries(w.config.goods).map(([id, g]: any) => (
+            <option key={id} value={id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label={title + " 수량"}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={1000}
+          value={value.goods[good] || 0}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              goods: { ...value.goods, [good]: +e.target.value },
+            })
+          }
+        />
+      </div>
+      <div className="basket-tags">
+        {Object.entries(value.goods)
+          .filter(([, n]) => n > 0)
+          .map(([g, n]) => (
+            <button
+              key={g}
+              onClick={() =>
+                onChange({ ...value, goods: { ...value.goods, [g]: 0 } })
+              }
+            >
+              {w.config.goods[g].name} {n}
+              <X size={12} />
+            </button>
+          ))}
+      </div>
+      <label className="gold-input">
+        G
+        <input
+          aria-label={title + " G"}
+          type="number"
+          min={0}
+          max={100000}
+          value={value.gold}
+          onChange={(e) => onChange({ ...value, gold: +e.target.value })}
+        />
+      </label>
+    </div>
+  );
+}
+function Activity({ w }: { w: World }) {
+  return (
+    <section className="activity-card">
+      <div className="panel-heading">
+        <h2>우리 세계의 새 소식</h2>
+        <span>누가 무엇을 했을까요?</span>
+      </div>
+      {w.logs.slice(0, 7).map((l) => (
+        <div className="activity-line" key={l.id}>
+          <span className="tiny-dot" />
+          <span>{l.text}</span>
+          <small>{l.round ? `${l.round}라운드` : "준비"}</small>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+export default function App(){return (globalThis as any).NATIONLAB_CONFIG?.experience === "sandbox" && !new URLSearchParams(location.search).has("legacy") ? <SandboxApp/> : <LegacyApp/>;}
