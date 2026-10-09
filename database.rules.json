@@ -268,10 +268,10 @@
                 ".validate": false
               },
               "x": {
-                ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
+                ".validate": "newData.isNumber() && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
               },
               "z": {
-                ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
+                ".validate": "newData.isNumber() && newData.val() >= 2 && newData.val() < root.child('sandboxes').child($server).child($code).child('state').child('config/size').val() - 2"
               },
               "zone": {
                 ".validate": "newData.isString() && (newData.val() === 'surface' || newData.val() === 'mine')"

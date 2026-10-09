@@ -493,7 +493,7 @@ globalThis.NATIONLAB_CONFIG = {
 /* 샌드박스 수업: 아래 숫자와 나라·설계도를 교사가 조절할 수 있습니다. */
 globalThis.NATIONLAB_CONFIG.experience = "sandbox";
 globalThis.NATIONLAB_CONFIG.sandbox = {
-  size: 64, height: 32,
+  size: 96, height: 32,
   mine:{floor:-8,ceiling:-2,margin:8,stone:24}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
   stamina: {max: 24, intervalSeconds: 60, refill: 3}, resourceSeconds: 180,

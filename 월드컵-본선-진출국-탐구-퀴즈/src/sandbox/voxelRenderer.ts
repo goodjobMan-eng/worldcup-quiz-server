@@ -17,14 +17,14 @@ const key=(x:number,y:number,z:number)=>`${x},${y},${z}`;
 const noise=(x:number,z:number)=>Math.abs(Math.sin(x*127.1+z*311.7)*43758.5453)%1;
 /** One indexed mesh per chunk, with faces between solid cells omitted. Colors replace an asset download. */
 export function blockGeometry(blocks:Block[], occupied:(x:number,y:number,z:number)=>boolean) {
- const vertices:number[]=[],normals:number[]=[],colors:number[]=[],indices:number[]=[],targets:(Target|undefined)[]=[];
+ const vertices:number[]=[],normals:number[]=[],colors:number[]=[],uvs:number[]=[],indices:number[]=[],targets:(Target|undefined)[]=[];
  for(const b of blocks)faces.forEach((f,fi)=>{
   if(occupied(b.x+f.n[0],b.y+f.n[1],b.z+f.n[2]))return;
   const start=vertices.length/3,color=new THREE.Color(b.colors?.[fi%b.colors.length]||b.color).multiplyScalar(f.shade);
-  f.c.forEach(c=>{vertices.push(b.x+c[0],b.y+c[1],b.z+c[2]);normals.push(...f.n);colors.push(color.r,color.g,color.b);});
+  f.c.forEach(c=>{vertices.push(b.x+c[0],b.y+c[1],b.z+c[2]);normals.push(...f.n);colors.push(color.r,color.g,color.b);uvs.push(f.n[1]?c[0]:f.n[0]?c[2]:c[0],f.n[1]?c[2]:c[1]);});
   indices.push(start,start+1,start+2,start,start+2,start+3);targets.push(b.target);
  });
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));g.setIndex(indices);g.computeBoundingSphere();g.userData.targets=targets;return g;
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.setIndex(indices);g.computeBoundingSphere();g.userData.targets=targets;return g;
 }
 export function voxelBlocks(voxels:Record<string,Voxel>,config:any,origin=false,offset={x:0,y:0,z:0},island=''):Block[]{
  return Object.entries(voxels).map(([id,v])=>{
@@ -46,7 +46,15 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  const geo=<T extends THREE.BufferGeometry>(g:T)=>{geometries.add(g);return g;};const cube=geo(new THREE.BoxGeometry(1,1,1));
  const palette=new Map<string,THREE.MeshLambertMaterial>();
  function material(color:string){if(!palette.has(color)){const m=new THREE.MeshLambertMaterial({color,flatShading:true});palette.set(color,m);materials.add(m);}return palette.get(color)!;}
- const vertexMaterial=new THREE.MeshLambertMaterial({vertexColors:true,flatShading:true});materials.add(vertexMaterial);
+ // minecraft-threejs uses nearest-neighbor block textures. Generate our own
+ // 16-pixel pattern here: no Minecraft or third-party texture files are shipped.
+ const pixelCanvas=document.createElement('canvas');pixelCanvas.width=16;pixelCanvas.height=16;
+ const pixelContext=pixelCanvas.getContext('2d')!;
+ for(let py=0;py<16;py++)for(let px=0;px<16;px++){
+  const n=noise(px,py),light=Math.round(225+n*30);pixelContext.fillStyle=`rgb(${light},${light},${light})`;pixelContext.fillRect(px,py,1,1);
+ }
+ const pixelTexture=new THREE.CanvasTexture(pixelCanvas);pixelTexture.magFilter=THREE.NearestFilter;pixelTexture.minFilter=THREE.NearestFilter;pixelTexture.colorSpace=THREE.SRGBColorSpace;textures.add(pixelTexture);
+ const vertexMaterial=new THREE.MeshLambertMaterial({vertexColors:true,flatShading:true,map:pixelTexture});materials.add(vertexMaterial);
  function box(parent:THREE.Object3D,color:string,x:number,y:number,z:number,sx:number,sy:number,sz:number){const m=new THREE.Mesh(cube,material(color));m.position.set(x,y,z);m.scale.set(sx,sy,sz);parent.add(m);return m;}
  function textLabel(parent:THREE.Object3D,text:string,x:number,y:number,z:number,color='#3d624e',height=.45){
   const c=document.createElement('canvas'),ctx=c.getContext('2d')!;ctx.font='600 26px sans-serif';c.width=Math.ceil(ctx.measureText(text).width+32);c.height=48;
