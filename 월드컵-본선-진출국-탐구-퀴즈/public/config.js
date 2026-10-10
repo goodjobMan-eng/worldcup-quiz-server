@@ -505,10 +505,10 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   hitCounts:{wood:3,stone:3,iron:4,copper:4,animal:2,default:2},
   terrainDigDepth:2, freeBuildLimit:600, freeBuildHeight:8,
   fuelSubstitutes:["coal","charcoal"],
-  farm:{size:4,growSeconds:90,harvestAmount:2,starterCrops:4},
+  farm:{size:4,growSeconds:90,harvestAmount:2,starterCrops:0},
   hotbar:["wood","stone","riceSeed","wheatSeed","rice","wheat","wool","meat","plank"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
-  stamina: {max: 24, intervalSeconds: 60, refill: 3}, resourceSeconds: 180,
+  stamina: {max: 24, intervalSeconds: 60, refill: 3, harvestCost: 2, toolCost: 1}, resourceSeconds: 180,
   plot: {size: 5, height: 4}, freePlot: {size:16,height:16},
   materials: {kinds:5, importedKinds:3, processedKinds:1},
   bridge: {plank:12, masonry:6},
@@ -547,7 +547,7 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     {id:"sahar",name:"사하르 왕국",short:"사하르",color:"#d1b266",biome:"사막",weight:3,specialties:{oil:16,sand:18},technologies:[]},
     {id:"lumina",name:"루미나 연방",short:"루미나",color:"#90aacb",biome:"광산",weight:2,specialties:{iron:12,copper:12},technologies:["refining","coalProcessing"]}
   ],
-  commonResources:{wood:32,stone:28},
+  commonResources:{wood:32,stone:28}, wildCrops:{riceSeed:8,wheatSeed:8},
   blueprints:[
     {id:"garden",name:"계단 정원",heights:[[0,0,0,0,0],[0,1,2,1,0],[0,2,3,2,0],[0,1,2,1,0],[0,0,0,0,0]]},
     {id:"gate",name:"언덕 전망대",heights:[[0,0,0,0,0],[0,3,1,3,0],[0,1,2,1,0],[0,1,1,1,0],[0,0,0,0,0]]},

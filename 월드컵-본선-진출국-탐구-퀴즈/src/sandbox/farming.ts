@@ -8,3 +8,6 @@ export function farmCells(w:SandboxWorld){
 }
 export const farmKey=(x:number,z:number)=>`${x}_${z}`;
 export function cropMature(w:SandboxWorld,crop:Crop,now:number){return now-crop.plantedAt>=Math.max(1,Number(w.config.farm?.growSeconds)||90)*1000;}
+
+/** Dug ground can become a shared crop plot anywhere on the island. */
+export function farmSites(w:SandboxWorld,island:string){const n=w.nations[island],keys=new Set([...Object.keys(n.dug||{}),...Object.keys(n.crops||{})]);return [...keys].map(key=>{const [x,z]=key.split('_').map(Number);return {x,z};}).filter(c=>Number.isInteger(c.x)&&Number.isInteger(c.z));}

@@ -1,6 +1,6 @@
 import {mineFloor,mineLand,mineEntrance,mineExit} from './terrain';
 import {animalPose,animalRoutes} from './animals';
-import {farmCells,farmKey,cropMature} from './farming';
+import {farmSites,farmKey,cropMature} from './farming';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -30,7 +30,7 @@ export default function VoxelWorld(props:VoxelWorldProps){
    for(let z=0;z<size;z++)for(let x=0;x<size;x++){const h=zone==='mine'?(mineLand(w,x,z)?1:-1):groundHeight(w,island,x,z);if(h<0)continue;ctx.fillStyle=zone==='mine'?'#53636a':h>1?'#94b689':'#b6ca9e';ctx.fillRect(x,z,1,1);}
    const targets:Target[]=[];
    for(const resource of Object.values(n.nodes)){if((resource.zone||'surface')!==zone||resource.readyAt>Date.now())continue;ctx.fillStyle=w.config.goods[resource.good]?.color||'#899998';ctx.fillRect(resource.x+.08,resource.z+.08,.84,.84);targets.push({kind:'resource',island,zone,id:resource.id,x:resource.x,y:resource.y,z:resource.z});}
-   if(zone==='surface')for(const{x,z}of farmCells(w)){const crop=n.crops?.[farmKey(x,z)];ctx.fillStyle=crop?(cropMature(w,crop,p.timeNow?.()??Date.now())?'#d9bb67':'#83a967'):'#795c40';ctx.fillRect(x+.08,z+.08,.84,.84);targets.push({kind:'farm',island,x,y:heightAt(size,x,z),z});}
+   if(zone==='surface')for(const{x,z}of farmSites(w,island)){const crop=n.crops?.[farmKey(x,z)];ctx.fillStyle=crop?(cropMature(w,crop,p.timeNow?.()??Date.now())?'#d9bb67':'#83a967'):'#795c40';ctx.fillRect(x+.08,z+.08,.84,.84);targets.push({kind:'farm',island,x,y:groundHeight(w,island,x,z),z});}
    if(zone==='surface')for(const[kind,f]of Object.entries(facilities(size))){ctx.fillStyle='#b08b65';ctx.fillRect(f.x-.1,f.z-.1,1.2,1.2);targets.push({kind:kind as Target['kind'],island,x:f.x,y:heightAt(size,f.x,f.z),z:f.z});}
    const portal=zone==='mine'?mineExit(w):mineEntrance(size);ctx.fillStyle='#e6c57f';ctx.fillRect(portal.x,portal.z,1,1);targets.push({...portal,y:zone==='mine'?mineFloor(w):heightAt(size,portal.x,portal.z),island,zone,kind:zone==='mine'?'mineExit':'mineEntrance'});
    const plot=plotOrigin(size),ps=w.stage>=3?(w.config.freePlot?.size||16):(w.config.plot?.size||5);ctx.strokeStyle='#fff5d4';ctx.lineWidth=.1;ctx.strokeRect(plot.x,plot.z,ps,ps);

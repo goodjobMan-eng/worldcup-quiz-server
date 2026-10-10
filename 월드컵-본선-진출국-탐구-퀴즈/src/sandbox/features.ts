@@ -1,5 +1,5 @@
 import type {SandboxWorld} from './types';
-import {mineLand,minePillar,mineExit,mineFloor} from './terrain';
+import {mineLand,minePillar,mineExit,mineFloor,land,protectedTile,heightAt} from './terrain';
 import {farmCells,farmKey} from './farming';
 /** Upgrade saved prototype rooms once, retaining inventories, receipts and resource cooldowns. */
 export function upgradeFeatures(w:SandboxWorld){
@@ -36,7 +36,7 @@ export function upgradeFeatures(w:SandboxWorld){
   }
   for(const n of Object.values(w.nations)){
    n.wildlife||={};
-   if(!n.crops){n.crops={};const cells=farmCells(w),count=Math.min(cells.length,w.config.farm?.starterCrops||4);
+   if(!n.crops){n.crops={};const cells=farmCells(w),count=Math.min(cells.length,w.config.farm?.starterCrops??4);
     for(let i=0;i<count;i++){const {x,z}=cells[i];n.crops[farmKey(x,z)]={good:i%2?'wheat':'rice',plantedAt:0,by:'starter'};}
    }
   }
@@ -72,4 +72,25 @@ export function upgradeFeatures(w:SandboxWorld){
   }
   w.featuresVersion=5;
  }
+ if((w.featuresVersion||0)<6){
+  const current=(globalThis as any).NATIONLAB_CONFIG?.sandbox;
+  w.config.stamina.harvestCost??=current?.stamina?.harvestCost??2;
+  w.config.stamina.toolCost??=current?.stamina?.toolCost??1;
+  w.config.wildCrops||=structuredClone(current?.wildCrops||{riceSeed:8,wheatSeed:8});
+  for(const n of Object.values(w.nations)){
+   n.dug||={};for(const key of Object.keys(n.crops||{}))n.dug[key]??=1;
+   const occupied=new Set(Object.values(n.nodes).filter(node=>(node.zone||'surface')==='surface').map(node=>`${node.x}_${node.z}`));
+   for(const [good,count] of Object.entries(w.config.wildCrops)){
+    let existing=Object.values(n.nodes).filter(node=>node.good===good).length;
+    for(let z=4;z<w.config.size*.7&&existing<Number(count);z++)for(let x=4;x<w.config.size-4&&existing<Number(count);x++){
+     const index=(x*37+z*71+good.length*13)%113;
+     if(index>12||occupied.has(`${x}_${z}`)||w.nations[n.id].dug?.[farmKey(x,z)]||Object.keys(w.nations[n.id].crops||{}).includes(farmKey(x,z)))continue;
+     if(!land(w.config.size,x,z)||protectedTile(w,n.id,x,z,true))continue;
+     const id=`wild-${good}-${existing}`;n.nodes[id]={id,good,x,z,y:heightAt(w.config.size,x,z),readyAt:0};occupied.add(`${x}_${z}`);existing++;
+    }
+   }
+  }
+  w.featuresVersion=6;
+ }
+
 }

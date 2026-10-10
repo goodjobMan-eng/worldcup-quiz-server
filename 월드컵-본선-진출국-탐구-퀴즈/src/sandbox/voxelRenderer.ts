@@ -1,6 +1,6 @@
 import {mineEntrance,mineExit,mineFloor,mineLand,minePillar} from './terrain';
 import {animalPose,animalRoutes,type AnimalKind} from './animals';
-import {farmCells,farmKey,cropMature} from './farming';
+import {farmSites,farmKey,cropMature} from './farming';
 import * as THREE from 'three';
 import { bridgeStation, facilities, heightAt, land, plotOrigin, spawn, groundHeight } from './terrain';
 import type { Pos, SandboxWorld, Target, Voxel } from './types';
@@ -191,6 +191,8 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
    for(let layer=0;layer<remaining;layer++)box(g,layer%2?'#a48058':'#97724e',0,layer+.5,0,.76,.98,.76);
    box(g,forest?'#58896d':'#71996b',0,remaining+.38,0,1.75,.8,1.65);
    box(g,'#92b57b',-.05,remaining+.92,0,1.15,.48,1.1);
+  }else if(n.good==='riceSeed'||n.good==='wheatSeed'){
+   const rice=n.good==='riceSeed';box(g,'#739453',0,.38,0,.13,.76,.13);for(const dx of[-.22,0,.22]){box(g,'#6e9e55',dx,.48,0,.12,.67,.13);box(g,rice?'#e5d993':'#d9ac55',dx,.85,.04,.19,.26,.18);}
   }else if(n.good==='cotton'){
    box(g,'#839655',0,.3,0,.12,.6,.12);box(g,'#e9ecdc',-.22,.63,.06,.42,.42,.42);box(g,'#fff8e9',.19,.77,-.1,.43,.44,.44);box(g,'#c4cf9c',.05,.3,.17,.48,.13,.32);
   }else if(n.good==='oil'){
@@ -240,7 +242,7 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
    if(!underground){const ts=JSON.stringify(nation.dug||{});if(ts!==terrainSignature){rebuildTerrain(w);terrainSignature=ts;}}
    const hitAge=view.impact?time-view.impact.at:Infinity;
    const animalPositions=creatureRoutes.flatMap(route=>{const g=creatures.get(route.id)!;g.visible=(nation.wildlife?.[route.id]||0)<=now;if(!g.visible)return [];const pose=animalPose(w,route,now);g.position.set(pose.x+.5,pose.y+pose.bob,pose.z+.5);g.rotation.y=pose.heading;g.rotation.z=view.impact?.target.kind==='animal'&&view.impact.target.id===route.id&&hitAge<350?Math.sin(hitAge*.045)*.14*(1-hitAge/350):0;Object.assign(g.userData.target,{x:Math.floor(pose.x),y:pose.y,z:Math.floor(pose.z)});return [{id:route.id,name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))}];});
-   if(!underground){const cells=farmCells(w),stage=Object.fromEntries(Object.entries(nation.crops||{}).map(([key,crop])=>[key,[crop.good,cropMature(w,crop,now)]])),fs=JSON.stringify(stage);if(fs!==farmSignature){clear(farms);for(const {x,z} of cells){const crop=nation.crops?.[farmKey(x,z)],y=heightAt(size,x,z),g=targetGroup(farms,{kind:'farm',island,x,y,z});box(g,'#795c40',0,.035,0,.94,.07,.94);if(crop){const grown=cropMature(w,crop,now),h=grown?.68:.32;box(g,'#679347',0,.12+h/2,0,.15,h,.15);for(const dx of[-.22,.22])box(g,crop.good==='rice'?'#e9db92':'#d5ad54',dx,.16+h,0,.28,grown?.25:.13,.25);} }batchResources(farms);farmSignature=fs;}}
+   if(!underground){const cells=farmSites(w,island),stage=Object.fromEntries(Object.entries(nation.crops||{}).map(([key,crop])=>[key,[crop.good,cropMature(w,crop,now)]])),fs=JSON.stringify([stage,nation.dug]);if(fs!==farmSignature){clear(farms);for(const {x,z} of cells){const crop=nation.crops?.[farmKey(x,z)],y=groundHeight(w,island,x,z),g=targetGroup(farms,{kind:'farm',island,x,y,z});box(g,'#795c40',0,.035,0,.94,.07,.94);if(crop){const grown=cropMature(w,crop,now),h=grown?.68:.32;box(g,'#679347',0,.12+h/2,0,.15,h,.15);for(const dx of[-.22,.22])box(g,crop.good==='rice'?'#e9db92':'#d5ad54',dx,.16+h,0,.28,grown?.25:.13,.25);} }batchResources(farms);farmSignature=fs;}}
    if(ns!==nodeSignature){clear(resources);nodeGroups.clear();activeNodes.forEach(node);batchResources(resources);nodeSignature=ns;}
    const ds=JSON.stringify(activeNodes.filter(n=>n.hits).map(n=>[n.id,n.hits,n.remaining]));if(ds!==damageSignature){clear(damage);for(const n of activeNodes.filter(n=>n.hits)){const y=n.y+(n.good==='wood'?(n.remaining??w.config.treeLayers??3)-1:0),g=targetGroup(damage,{kind:'resource',island,zone,id:n.id,x:n.x,y,z:n.z});box(g,'#3f302b',-.19,.53,.405,.055,.53,.022);if((n.hits||0)>1)box(g,'#3f302b',.08,.42,.41,.45,.05,.022);if((n.hits||0)>2)box(g,'#3f302b',.24,.67,.412,.05,.42,.022);}batch(damage);damageSignature=ds;}
    const vs=JSON.stringify(nation.voxels)+view.origin;

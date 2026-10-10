@@ -9,6 +9,4 @@
 .sb-game .sb-actions .sb-touch-place{grid-column:1;grid-row:2}
 .sb-game .sb-actions .sb-touch-jump{grid-column:2;grid-row:3;width:60px!important;height:60px!important;min-width:60px!important;min-height:60px!important;justify-self:center}
 .sb-game .sb-actions button span{font-size:29px;line-height:1}.sb-game .sb-actions button small{font-size:11px;line-height:1.2;color:#173830;font-weight:800}
-.sb-hit-burst{position:absolute;top:45%;left:51%;transform:translate(-50%,-50%);font-weight:1000;font-size:30px;color:#fff1bc;text-shadow:2px 3px 0 #733c21,0 0 12px #ffb64e;pointer-events:none;animation:sb-hit-pop .43s ease-out both;z-index:2}
-@keyframes sb-hit-pop{0%{opacity:0;scale:.55}20%{opacity:1;scale:1.2}100%{opacity:0;scale:1.55;translate:0 -34px}}
 @media(max-height:600px){.sb-game .sb-actions{bottom:76px;grid-template-columns:64px 64px;grid-template-rows:auto 64px 52px}.sb-game .sb-actions button:not(.sb-use){width:64px;height:64px;min-width:64px;min-height:64px}.sb-game .sb-actions .sb-touch-jump{width:52px!important;height:52px!important;min-width:52px!important;min-height:52px!important}}

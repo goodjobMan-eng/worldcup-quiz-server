@@ -23,9 +23,9 @@ export function bridgeStation(w:SandboxWorld,nation:string,bridgeId:string) {con
 export function spawn(w:SandboxWorld,uid:string):Pos {const p=w.players[uid];const size=w.config.size;if(p?.zone!=='mine'&&p?.arrival==='mine'){const t=mineEntrance(size);return {island:p.location,...t,z:t.z+2,y:heightAt(size,t.x,t.z+2),zone:'surface'};}if(p?.zone==='mine'){const e=mineExit(w);return {...e,z:e.z-2,island:p.location,zone:'mine',y:mineFloor(w)};}if(p?.location&&p.location!==p.nation){const bridge=Object.values(w.bridges).find(b=>(b.a===p.nation&&b.b===p.location)||(b.b===p.nation&&b.a===p.location));if(bridge){const t=bridgeStation(w,p.location,bridge.id);return {island:p.location,x:t.x,y:heightAt(size,t.x,t.z+1),z:t.z+1};}}const index=Object.keys(w.players).indexOf(uid);const x=Math.floor(size/2)+(index%3),z=Math.floor(size*.76)+Math.floor(index/3)%3;return {island:p?.location||p?.nation||Object.keys(w.nations)[0],x,y:heightAt(size,x,z),z};}
 export function reachable(pos:Pos,t:Pick<Target,'island'|'x'|'z'|'zone'>,distance=2.5) {return (pos.zone||'surface')===(t.zone||'surface')&&pos.island===t.island&&Math.hypot(pos.x-t.x,pos.z-t.z)<=distance;}
 export function groundHeight(w:SandboxWorld,island:string,x:number,z:number){x=Math.floor(x);z=Math.floor(z);return heightAt(w.config.size,x,z)-(w.nations[island]?.dug?.[farmKey(x,z)]||0);}
-export function protectedTile(w:SandboxWorld,island:string,x:number,z:number){
+export function protectedTile(w:SandboxWorld,island:string,x:number,z:number,allowFarm=false){
  x=Math.floor(x);z=Math.floor(z);
- if(!land(w.config.size,x,z)||farmCells(w).some(c=>c.x===x&&c.z===z))return true;
+ if(!land(w.config.size,x,z)||(!allowFarm&&farmCells(w).some(c=>c.x===x&&c.z===z)))return true;
  const plot=plotOrigin(w.config.size),ps=w.config.plot.size;if(x>=plot.x-1&&x<=plot.x+ps&&z>=plot.z-1&&z<=plot.z+ps)return true;
  if(Object.values(facilities(w.config.size)).some(p=>Math.hypot(p.x-x,p.z-z)<2.5))return true;
  const entrance=mineEntrance(w.config.size);if(Math.hypot(entrance.x-x,entrance.z-z)<3)return true;
