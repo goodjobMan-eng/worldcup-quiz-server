@@ -5,11 +5,16 @@ import {ImprovedNoise} from 'three/addons/math/ImprovedNoise.js';
 // fixed so every tablet derives the same landscape without Firebase terrain blobs.
 const landscapeNoise=new ImprovedNoise();
 export const plotOrigin = (size:number) => ({x:Math.floor(size*.64), z:Math.floor(size*.44)});
+export const missionPlotOrigin = (size:number,index:number) => {const p=plotOrigin(size);return {x:p.x,z:p.z+(index-1)*10};};
+export const freePlotSize = (size:number,configured=16) => Math.max(8,Math.min(configured,Math.floor(size*.22)));
+export const freePlotOrigin = (size:number,configured=16) => {const plotSize=freePlotSize(size,configured);return {x:size<80?4:Math.max(4,Math.floor(size*.13)),z:size<80?size-3-plotSize:Math.max(4,Math.min(Math.floor(size*.68),size-3-plotSize))};};
+export const insidePlot = (x:number,z:number,origin:{x:number;z:number},size:number) => x>=origin.x&&x<origin.x+size&&z>=origin.z&&z<origin.z+size;
 export function land(size:number,x:number,z:number) {const edge=2;return x>=edge&&z>=edge&&x<size-edge&&z<size-edge&&Math.hypot(Math.max(0,Math.abs(x-size/2)-(size/2-8)),Math.max(0,Math.abs(z-size/2)-(size/2-8)))<7;}
 export function heightAt(size:number,x:number,z:number) {
  x=Math.floor(x);z=Math.floor(z);
  if(!land(size,x,z))return -1;
- const p=plotOrigin(size); if(x>=p.x-2&&x<p.x+18&&z>=p.z-2&&z<p.z+18)return 1;
+ if([0,1,2].some(index=>{const p=missionPlotOrigin(size,index);return x>=p.x-2&&x<p.x+7&&z>=p.z-2&&z<p.z+7;}))return 1;
+ const fp=freePlotOrigin(size);if(insidePlot(x,z,fp,freePlotSize(size)))return 1;
  // Rooms created with the earlier 64-cell map keep their original terrain.
  if(size<96){if(Math.abs(x-size/2)<3||z>size*.68)return 1;const hill=Math.max(0,1-Math.hypot(x-size*.24,z-size*.29)/(size*.22));return 1+Math.floor(hill*3);}
  const entrance=mineEntrance(size);
@@ -26,7 +31,7 @@ export function groundHeight(w:SandboxWorld,island:string,x:number,z:number){x=M
 export function protectedTile(w:SandboxWorld,island:string,x:number,z:number,allowFarm=false){
  x=Math.floor(x);z=Math.floor(z);
  if(!land(w.config.size,x,z)||(!allowFarm&&farmCells(w).some(c=>c.x===x&&c.z===z)))return true;
- const plot=plotOrigin(w.config.size),ps=w.config.plot.size;if(x>=plot.x-1&&x<=plot.x+ps&&z>=plot.z-1&&z<=plot.z+ps)return true;
+ const ps=w.config.plot.size;if([0,1,2].some(index=>{const plot=missionPlotOrigin(w.config.size,index);return x>=plot.x-1&&x<=plot.x+ps&&z>=plot.z-1&&z<=plot.z+ps;}))return true;
  if(Object.values(facilities(w.config.size)).some(p=>Math.hypot(p.x-x,p.z-z)<2.5))return true;
  const entrance=mineEntrance(w.config.size);if(Math.hypot(entrance.x-x,entrance.z-z)<3)return true;
  if(Object.values(w.bridges).some(b=>(b.a===island||b.b===island)&&Math.hypot(bridgeStation(w,island,b.id).x-x,bridgeStation(w,island,b.id).z-z)<3))return true;
@@ -34,7 +39,7 @@ export function protectedTile(w:SandboxWorld,island:string,x:number,z:number,all
 }
 export function walkable(w:SandboxWorld,island:string,x:number,z:number,now=Date.now(),zone:Zone='surface') {x=Math.floor(x);z=Math.floor(z);if(zone==='mine')return !!w.nations[island]&&mineLand(w,x,z)&&!minePillar(w,x,z)&&!Object.values(w.nations[island].nodes).some(n=>n.zone==='mine'&&n.x===x&&n.z===z&&n.readyAt<=now);return !!w.nations[island]&&land(w.config.size,x,z)&&!Object.values(w.nations[island].nodes).some(n=>(n.zone||'surface')==='surface'&&n.x===x&&n.z===z&&n.readyAt<=now)&&!Object.values(facilities(w.config.size)).some(n=>n.x===x&&n.z===z);}
 /** Feet stand on the highest supported cube, never inside a landmark. */
-export function surfaceHeight(w:SandboxWorld,island:string,x:number,z:number,zone:Zone='surface'){if(zone==='mine')return mineFloor(w);x=Math.floor(x);z=Math.floor(z);const origin=plotOrigin(w.config.size),ground=groundHeight(w,island,x,z),landmark=ground+Math.max(0,...Object.values(w.nations[island]?.voxels||{}).filter(v=>v.x===x-origin.x&&v.z===z-origin.z).map(v=>v.y+1)),free=Math.max(0,...Object.values(w.nations[island]?.freeVoxels||{}).filter(v=>v.x===x&&v.z===z).map(v=>v.y+1));return Math.max(landmark,free);}
+export function surfaceHeight(w:SandboxWorld,island:string,x:number,z:number,zone:Zone='surface'){if(zone==='mine')return mineFloor(w);x=Math.floor(x);z=Math.floor(z);const n=w.nations[island],ground=groundHeight(w,island,x,z),landmark=Math.max(0,...[0,1,2].flatMap(index=>{const origin=missionPlotOrigin(w.config.size,index),voxels=index<(n?.raceWorks?.length||0)?n.raceWorks![index].voxels:index===(n?.raceWorks?.length||0)?n?.voxels:{};return Object.values(voxels||{}).filter(v=>v.x===x-origin.x&&v.z===z-origin.z).map(v=>v.y+1);})),free=Math.max(0,...Object.values(n?.freeVoxels||{}).filter(v=>v.x===x&&v.z===z).map(v=>v.y+1));return Math.max(ground+landmark,free);}
 
 export const mineEntrance=(size:number)=>({x:Math.floor(size*.22),z:Math.floor(size*.24)});
 export const mineFloor=(w:SandboxWorld)=>w.config.mine?.floor??-8;
