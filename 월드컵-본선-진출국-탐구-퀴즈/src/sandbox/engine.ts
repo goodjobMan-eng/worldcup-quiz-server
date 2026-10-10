@@ -10,7 +10,7 @@ export const template=(w:SandboxWorld,id:string)=>w.config.templates.find((n:any
 export const emptyGoods=(w:SandboxWorld):Goods=>Object.fromEntries(Object.keys(w.config.goods).map(g=>[g,[]]));
 function collection(v:any):any[]{return Array.isArray(v)?v.filter(Boolean):Object.values(v||{});}
 export function normalize(raw:SandboxWorld):SandboxWorld {
- const w=structuredClone(raw);upgradeFeatures(w);for(const t of w.config.templates)t.technologies||=[];w.players||={};w.trades||={};w.receipts||={};w.logs=collection(w.logs);
+ const w=structuredClone(raw);upgradeFeatures(w);w.permissions||={playerHits:false};for(const t of w.config.templates)t.technologies||=[];w.players||={};w.trades||={};w.receipts||={};w.logs=collection(w.logs);
  function goods(g:Goods|undefined):Goods{return Object.fromEntries(Object.keys(w.config.goods).map(k=>[k,collection(g?.[k])]));}
  for(const n of Object.values(w.nations)){n.stock=goods(n.stock);n.nodes||={};n.voxels||={};n.freeVoxels||={};n.dug||={};n.groundHits||={};n.crops||={};n.wildlife||={};n.wildlifeHits||={};n.plan||=Array.from({length:w.config.plot.size},()=>Array(w.config.plot.size).fill(0));if(n.registration)n.registration.cheers||={};}
  for(const p of Object.values(w.players)){p.bag=goods(p.bag);p.tools||={};p.zone||='surface';p.reflections||={};p.learned||={mined:0,crafted:0,traded:0,built:0,planned:0};}
@@ -20,7 +20,7 @@ export function normalize(raw:SandboxWorld):SandboxWorld {
 }
 export function makeWorld(code:string,teacher:string,school:string,className:string,serverId:string,regionId:string,district:string,ids?:string[],now=Date.now()):SandboxWorld{
  const cfg=settings();cfg.size=Math.max(48,Math.min(96,Math.round(cfg.size)));const active=ids||cfg.activeNations;assert(active.length>=4&&active.length<=6,'나라는 4~6개를 선택해 주세요.');assert(new Set(active).size===active.length,'나라가 중복되어 있어요.');
- const w:SandboxWorld={version:3,code,teacher,school:school.trim(),className:className.trim(),serverId,regionId,district,config:cfg,nations:{},players:{},bridges:{},trades:{},stage:1,phase:'lobby',endsAt:0,remainingMs:0,lesson:0,logs:[],receipts:{},revision:0};
+ const w:SandboxWorld={version:3,code,teacher,school:school.trim(),className:className.trim(),serverId,regionId,district,config:cfg,permissions:{playerHits:false},nations:{},players:{},bridges:{},trades:{},stage:1,phase:'lobby',endsAt:0,remainingMs:0,lesson:0,logs:[],receipts:{},revision:0};
  active.forEach((id,index)=>{const spec=template(w,id);assert(spec,'없는 나라예요.');const n=w.nations[id]={id,stock:emptyGoods(w),nodes:{},voxels:{},plan:Array.from({length:cfg.plot.size},()=>Array(cfg.plot.size).fill(0)),blueprint:cfg.blueprints[index%cfg.blueprints.length].id};const occupied=new Set(Object.values(facilities(cfg.size)).map(p=>`${p.x},${p.z}`));const entrance=mineEntrance(cfg.size);for(let dx=-2;dx<=2;dx++)for(let dz=-1;dz<=3;dz++)occupied.add(`${entrance.x+dx},${entrance.z+dz}`);const plot=plotOrigin(cfg.size);let serial=0;
  for(const [good,count] of Object.entries({...cfg.commonResources,...cfg.wildCrops,...spec.specialties}))for(let i=0;i<Number(count);i++){for(let tries=0;tries<10000;tries++){const seed=serial*113+i*137+tries*31+index*173;const x=4+((seed*17+7)%(cfg.size-8)),z=4+((seed*43+11+Math.floor(seed/11))%(cfg.size-12));const k=`${x},${z}`;if(!land(cfg.size,x,z)||occupied.has(k)||Math.abs(x-cfg.size/2)<3||z>cfg.size*.7||(x>=plot.x-3&&x<plot.x+18&&z>=plot.z-3&&z<plot.z+18))continue;const nid=`${good}-${i}`;n.nodes[nid]={id:nid,good,x,y:heightAt(cfg.size,x,z),z,readyAt:0};occupied.add(k);break;}serial++;}
  });
@@ -60,6 +60,8 @@ export function apply(raw:SandboxWorld,actor:string,cmd:Command,positions:Record
  case 'tick':host();if(w.phase==='playing'&&now>=w.endsAt){w.phase='paused';w.remainingMs=0;}break;
  case 'enterMine': {active();assert(!p.dispatch,'파견 중에는 광산에 들어가지 않아요.');assert(p.zone==='surface','이미 지하에 있어요.');const entrance=mineEntrance(w.config.size);validNear(w,p,positions,entrance);p.zone='mine';delete p.arrival;text=`${p.nickname}: 광산 입구를 지나 지하로 내려왔어요.`;break;}
  case 'exitMine': {active();assert(p.zone==='mine','지하에서만 나갈 수 있어요.');validNear(w,p,positions,{...mineExit(w),zone:'mine'});p.zone='surface';p.arrival='mine';text=`${p.nickname}: 광산에서 지상으로 나왔어요.`;break;}
+ case 'setPlayerHits': {host();w.permissions||={playerHits:false};assert(typeof cmd.enabled==='boolean','허용 여부를 확인해 주세요.');w.permissions.playerHits=cmd.enabled;text=cmd.enabled?'선생님이 학생 간 타격을 허용했어요.':'선생님이 학생 간 타격을 금지했어요.';break;}
+ case 'hitPlayer': {active();assert(w.permissions?.playerHits===true,'선생님이 학생 간 타격을 금지했어요.');const other=w.players[String(cmd.target)];assert(other&&other.id!==actor,'때릴 친구를 확인해 주세요.');assert(other.location===p.location&&(other.zone||'surface')===(p.zone||'surface'),'같은 구역의 친구만 때릴 수 있어요.');validNear(w,p,positions,position(w,other,positions),p.location,3);assert(now-(p.lastPlayerHitAt||0)>=800,'잠시 뒤에 다시 시도해 주세요.');assert(p.stamina>=2,'체력이 부족해요.');p.stamina-=2;other.stamina=Math.max(0,other.stamina-2);other.staminaAt=now;other.lastHitAt=now;p.lastPlayerHitAt=now;text=`${p.nickname}가 ${other.nickname}을 때렸어요.`;economic=true;break;}
  case 'dig': {
   own();assert(p.zone!=='mine','지상의 땅을 골라 주세요.');
   const x=Number(cmd.x),z=Number(cmd.z);assert(Number.isInteger(x)&&Number.isInteger(z)&&!protectedTile(w,p.nation,x,z,true),'이곳은 수업 시설을 위해 보호된 땅이에요.');
