@@ -509,7 +509,7 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   hotbar:["wood","stone","riceSeed","wheatSeed","plank","riceBall","bread","cookedMeat","dirt"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
   stamina: {max: 24, intervalSeconds: 60, refill: 3, harvestCost: 2, toolCost: 1}, survival:{maxHealth:20,maxHunger:20,eatHoldMs:700}, resourceSeconds: 180,
-  plot: {size: 5, height: 4}, freePlot: {size:16,height:16},
+  plot: {size: 5, height: 4}, freePlot: {size:16,height:16}, freeMission:{minBlocks:10,blockCap:80,weights:{block:2,variety:24,process:8,specialty:55,allSpecialties:240}},
   materials: {kinds:5, importedKinds:3, processedKinds:1},
   bridge: {plank:12, masonry:6},
   harbor: {plank:20, masonry:10, plate:4, glass:4, cloth:4, brick:8},
@@ -558,6 +558,6 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   reflections:{
     1:["다리가 없을 때 우리 나라는 무엇이 불편했나요?","다리가 생긴 뒤 무엇이 달라졌나요?"],
     2:["우리 랜드마크에 들어간 다른 나라의 것은 무엇인가요?","그 거래는 두 나라 모두에게 이익이었나요?"],
-    3:["다른 나라 모둠과 교역하며 우리가 얻은 것과 준 것은 무엇인가요?","무역이 없다면 우리 섬은 어땠을까요?"]
+    3:["자유 건물에 어느 나라의 어떤 특산품을 넣었나요?","가공한 재료와 교역이 건물의 가치를 어떻게 높였나요?"]
   }
 };

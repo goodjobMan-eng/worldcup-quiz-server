@@ -169,7 +169,7 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
   }
   textLabel(g,kind==='warehouse'?'공동 창고':kind==='workbench'?'가공 작업대':'랜드마크 설계판',0,kind==='blueprint'?2.3:1.65,0,'#456756',.48);
  }
- const plot=plotOrigin(size),plotSize=initial.world.stage>=3?(initial.world.config.freePlot?.size||16):(initial.world.config.plot?.size||5);
+ const plot=plotOrigin(size),plotSize=initial.world.config.plot?.size||5;
  const pad=box(stations,'#d6d9bd',plot.x+plotSize/2,1.005,plot.z+plotSize/2,plotSize,.018,plotSize);pad.userData.plot=true;pad.visible=!underground;
  const lines=new THREE.Group();scene.add(lines);lines.visible=!underground;for(let i=0;i<=plotSize;i++){box(lines,'#faf5da',plot.x+i,1.022,plot.z+plotSize/2,.032,.016,plotSize);box(lines,'#faf5da',plot.x+plotSize/2,1.024,plot.z+i,plotSize,.016,.032);}batch(lines);
  textLabel(lines,'앞  FRONT',plot.x+plotSize/2,1.1,plot.z+plotSize+.8,'#756b4d',.5);
