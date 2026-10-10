@@ -1,5 +1,5 @@
 import '../월드컵-본선-진출국-탐구-퀴즈/public/config.js';
-import {makeWorld,apply,blueprint,landmarkCheck,template,stamina} from '../월드컵-본선-진출국-탐구-퀴즈/src/sandbox/engine';
+import {makeWorld,apply,blueprint,missionMaterialPlan,landmarkCheck,template,stamina} from '../월드컵-본선-진출국-탐구-퀴즈/src/sandbox/engine';
 import {facilities,bridgeStation,missionPlotOrigin} from '../월드컵-본선-진출국-탐구-퀴즈/src/sandbox/terrain';
 import type {Pos,Command} from '../월드컵-본선-진출국-탐구-퀴즈/src/sandbox/types';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ export function simulateSandbox(trade:boolean){
  function craft(id:string,good:string,times:number){at(id,facilities(w.config.size).workbench);for(let i=0;i<times;i++)act(id,{type:'craft',good});}
  for(const id of ids){mine(id,'wood',4);mine(id,'stone',5);act(id,{type:'tool',tool:'axe'});act(id,{type:'tool',tool:'pickaxe'});mine(id,'wood',32);mine(id,'stone',28);craft(id,'plank',12);craft(id,'masonry',12);}
  for(const b of Object.values(w.bridges))for(const id of [b.a,b.b]){at(id,bridgeStation(w,id,b.id));act(id,{type:'bridge',bridge:b.id,good:'plank',quantity:12});act(id,{type:'bridge',bridge:b.id,good:'masonry',quantity:6});}
- mine('hualian','cotton',20);mine('hinomi','clay',20);mine('sahar','sand',20);mine('sahar','oil',20);for(const id of ids)craft(id,'plank',4);
+ mine('hualian','cotton',20);mine('hinomi','clay',20);mine('sahar','sand',20);mine('sahar','oil',20);for(const id of ids){craft(id,'plank',4);craft(id,'masonry',4);}
  function exchange(a:string,b:string,good:string,q:number){const bridge=Object.values(w.bridges).find(t=>(t.a===a&&t.b===b)||(t.a===b&&t.b===a))!;at(a,bridgeStation(w,a,bridge.id));at(b,bridgeStation(w,b,bridge.id));const id=`trade-${serial}`;act(a,{type:'tradeRequest',id,other:b,give:{[good]:q},receive:{wood:1}});const t=Object.values(w.trades).at(-1)!;act(a,{type:'tradeConfirm',trade:t.id,revision:0});act(b,{type:'tradeConfirm',trade:t.id,revision:0});}
  if(trade){const sources={cotton:'hualian',clay:'hinomi',sand:'sahar',oil:'sahar'};for(const [good,source]of Object.entries(sources))for(const target of ids){if(target===source)continue;let i=ids.indexOf(source);while(ids[i]!==target){const next=(i+1)%ids.length;exchange(ids[i],ids[next],good,3);i=next;}}
  // Imported processed blocks make processing interdependence visible as well.
@@ -22,6 +22,6 @@ export function simulateSandbox(trade:boolean){
  }else { // Isolate material feasibility without bypassing it in the actual game: stage stays locked.
   w.stage=2;
  }
- const result:Array<{nation:string;blocks:number;importedKinds:number;complete:boolean}>=[];for(const id of ids){const origin=missionPlotOrigin(w.config.size,0),h=blueprint(w,id).heights;at(id,{x:origin.x+2,z:origin.z+2});const usable=['cotton','clay','sand','oil','plank','wood','stone'].filter(g=>w.players[id].bag[g].length);let i=0;h.forEach((r,z)=>r.forEach((height,x)=>{for(let y=0;y<height;y++){const good=usable[i++%usable.length];act(id,{type:'place',x,y,z,good});}}));const check=landmarkCheck(w,id);result.push({nation:template(w,id).name,blocks:check.count,importedKinds:check.imported,complete:check.ready});if(check.ready)act(id,{type:'register',name:'교역 정원',description:'서로 가진 것을 바꾸어 함께 만든 작품이에요.'});}assert.ok(w.lesson<=w.config.totalLessons);return {world:w,trade,lessons:w.lesson,minutes:Math.ceil((now-1700000000000)/60000),result};
+ const result:Array<{nation:string;blocks:number;importedKinds:number;complete:boolean}>=[];for(const id of ids){const origin=missionPlotOrigin(w.config.size,0),h=blueprint(w,id).heights;at(id,{x:origin.x+2,z:origin.z+2});const plan=missionMaterialPlan(w,id);h.forEach((r,z)=>r.forEach((height,x)=>{for(let y=0;y<height;y++){const required=plan[`${x}_${y}_${z}`];if(y>0&&!w.nations[id].voxels[`${x}_${y-1}_${z}`])continue;const have=w.players[id].bag[required.good]?.some(u=>!required.source||Number(u.sources?.[required.source]?.[required.good])>0);if(have)act(id,{type:'place',x,y,z,good:required.good});}}));const check=landmarkCheck(w,id);result.push({nation:template(w,id).name,blocks:check.count,importedKinds:check.imported,complete:check.ready});if(check.ready)act(id,{type:'register',name:'교역 정원',description:'서로 가진 것을 바꾸어 함께 만든 작품이에요.'});}assert.ok(w.lesson<=w.config.totalLessons);return {world:w,trade,lessons:w.lesson,minutes:Math.ceil((now-1700000000000)/60000),result};
 }
 if(process.argv[1]?.includes('sandbox-simulate')){for(const trade of [false,true]){const out=simulateSandbox(trade);assert.ok(out.result.every(n=>n.complete===trade));console.log(trade?'교역 있음':'교역 없음 (건축 단계 잠금을 가정 해제하여 재료 조건만 비교)');console.table(out.result);console.log(`자원 재생·체력 회복 대기 포함 ${out.minutes}분, ${out.lessons}차시. 이동·협상·수업 설명 시간은 별도.`);}}

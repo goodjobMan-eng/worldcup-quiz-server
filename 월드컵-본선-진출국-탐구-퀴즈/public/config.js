@@ -511,6 +511,7 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   stamina: {max: 24, intervalSeconds: 60, refill: 3, harvestCost: 2, toolCost: 1}, survival:{maxHealth:20,maxHunger:20,eatHoldMs:700}, resourceSeconds: 180,
   plot: {size: 5, height: 4}, freePlot: {size:16,height:16}, freeMission:{minBlocks:10,blockCap:80,weights:{block:2,variety:24,process:8,specialty:55,allSpecialties:240}},
   materials: {kinds:5, importedKinds:3, processedKinds:1},
+  missionMaterials:{local:["wood","stone","plank","masonry"],importedSlots:[3,10],sources:{hualian:{nation:"hinomi",good:"clay"},hinomi:{nation:"sahar",good:"sand"},sahar:{nation:"hualian",good:"cotton"},lumina:{nation:"sahar",good:"sand"}}},
   bridge: {plank:12, masonry:6},
   harbor: {plank:20, masonry:10, plate:4, glass:4, cloth:4, brick:8},
   tools: {axe:{name:"도끼",cost:{wood:2,stone:2}},pickaxe:{name:"곡괭이",cost:{wood:2,stone:3}}},

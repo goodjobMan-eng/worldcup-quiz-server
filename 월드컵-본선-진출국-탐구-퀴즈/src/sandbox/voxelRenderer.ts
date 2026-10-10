@@ -1,6 +1,7 @@
 import {mineEntrance,mineExit,mineFloor,mineLand,minePillar} from './terrain';
 import {animalPose,animalRoutes,type AnimalKind} from './animals';
 import {farmSites,farmKey,cropMature} from './farming';
+import {missionMaterialPlan} from './engine';
 import * as THREE from 'three';
 import { bridgeStation, facilities, heightAt, land, missionPlotOrigin, freePlotOrigin, freePlotSize, spawn, groundHeight } from './terrain';
 import type { Pos, SandboxWorld, Target, Voxel } from './types';
@@ -171,11 +172,18 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  }
  const plotSize=initial.world.config.plot?.size||5;
  const lines=new THREE.Group();scene.add(lines);lines.visible=!underground;
+ const missionIndexNow=initial.world.nations[island]?.raceWorks?.length||0;
+ const missionPlan=missionIndexNow<3?missionMaterialPlan(initial.world,island):{};
  for(let missionIndex=0;missionIndex<3;missionIndex++){
   const spot=missionPlotOrigin(size,missionIndex),pad=box(stations,missionIndex===0?'#e3d4ab':missionIndex===1?'#cbd9d1':'#d7cde0',spot.x+plotSize/2,1.005,spot.z+plotSize/2,plotSize,.018,plotSize);
   pad.userData.plotIndex=missionIndex;pad.visible=!underground;
   for(let i=0;i<=plotSize;i++){box(lines,'#faf5da',spot.x+i,1.022,spot.z+plotSize/2,.032,.016,plotSize);box(lines,'#faf5da',spot.x+plotSize/2,1.024,spot.z+i,plotSize,.016,.032);}
   textLabel(lines,`${missionIndex+1}차 미션판`,spot.x+plotSize/2,1.16,spot.z+plotSize+.8,'#514f62',.48);
+  if(missionIndex===missionIndexNow)for(let z=0;z<plotSize;z++)for(let x=0;x<plotSize;x++){
+   const material=missionPlan[`${x}_0_${z}`];if(!material)continue;
+   const name=initial.world.config.goods[material.good]?.name||material.good;
+   textLabel(lines,material.source?`${name}★`:name,spot.x+x+.5,1.12,spot.z+z+.5,material.source?'#215d99':'#545c4c',.25);
+  }
  }
  const freeSize=freePlotSize(size,initial.world.config.freePlot?.size||16),freeSpot=freePlotOrigin(size,freeSize);
  for(const edge of [0,freeSize]){box(lines,'#78cba6',freeSpot.x+edge,1.04,freeSpot.z+freeSize/2,.1,.08,freeSize);box(lines,'#78cba6',freeSpot.x+freeSize/2,1.04,freeSpot.z+edge,freeSize,.08,.1);}
