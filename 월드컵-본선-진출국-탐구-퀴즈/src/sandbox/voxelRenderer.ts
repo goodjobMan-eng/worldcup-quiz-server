@@ -2,10 +2,10 @@ import {mineEntrance,mineExit,mineFloor,mineLand,minePillar} from './terrain';
 import {animalPose,animalRoutes,type AnimalKind} from './animals';
 import {farmCells,farmKey,cropMature} from './farming';
 import * as THREE from 'three';
-import { bridgeStation, facilities, heightAt, land, plotOrigin, spawn } from './terrain';
+import { bridgeStation, facilities, heightAt, land, plotOrigin, spawn, groundHeight } from './terrain';
 import type { Pos, SandboxWorld, Target, Voxel } from './types';
 
-export type WorldView = {world:SandboxWorld;positions:Record<string,Pos>;uid:string;yaw:number;pitch:number;timeNow?:()=>number;mining?:boolean;jump?:number;quality?:'low'|'normal';view?:'first'|'top'|'front'|'side';origin?:boolean};
+export type WorldView = {world:SandboxWorld;positions:Record<string,Pos>;uid:string;yaw:number;pitch:number;timeNow?:()=>number;mining?:boolean;impact?:{seq:number;at:number;target:Target};jump?:number;quality?:'low'|'normal';view?:'first'|'top'|'front'|'side';origin?:boolean};
 export type Block = {x:number;y:number;z:number;color:string;target?:Target;colors?:string[]};
 const faces = [
  {n:[1,0,0],c:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]],shade:.78},
@@ -68,7 +68,8 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  const heights=Array.from({length:size},(_,z)=>Array.from({length:size},(_,x)=>heightAt(size,x,z)));
  const occupied=(x:number,y:number,z:number)=>x>=0&&z>=0&&x<size&&z<size&&y>=-3&&y<heights[z][x];
  const chunks=new THREE.Group();scene.add(chunks);
- if(!underground)for(let cz=0;cz<size;cz+=16)for(let cx=0;cx<size;cx+=16){
+ function rebuildTerrain(w:SandboxWorld){clear(chunks);for(let z=0;z<size;z++)for(let x=0;x<size;x++)heights[z][x]=groundHeight(w,island,x,z);
+ for(let cz=0;cz<size;cz+=16)for(let cx=0;cx<size;cx+=16){
   const blocks:Block[]=[];
   for(let z=cz;z<Math.min(size,cz+16);z++)for(let x=cx;x<Math.min(size,cx+16);x++){
    const h=heights[z][x];if(h<0)continue;
@@ -80,7 +81,7 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
    }
   }
   const g=geo(blockGeometry(blocks,occupied)),mesh=new THREE.Mesh(g,vertexMaterial);chunks.add(mesh);
- }
+ }}
  if(underground){
   const w=initial.world,m=w.config.mine.margin,floor=mineFloor(w),ceiling=w.config.mine.ceiling,blocks:Block[]=[];const lamp=new THREE.PointLight('#ffe2b8',6,16,1.4);camera.add(lamp);
   const solid=(x:number,y:number,z:number)=>x>=m&&z>=m&&x<=size-m&&z<=size-m&&(y===floor-1||y===ceiling||((x===m||z===m||x===size-m||z===size-m||minePillar(w,x,z))&&y>=floor&&y<ceiling));
@@ -151,8 +152,8 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
   group.children.forEach(root=>root.traverse(o=>{if(o instanceof THREE.Mesh){const k=(o.material as THREE.Material).uuid,list=groups.get(k)||[];list.push({mesh:o,target:root.userData.target});groups.set(k,list);}}));
   group.clear();for(const list of groups.values()){const m=new THREE.InstancedMesh(cube,list[0].mesh.material,list.length);m.userData.instanceTargets=list.map(o=>o.target);list.forEach((o,i)=>m.setMatrixAt(i,o.mesh.matrixWorld));group.add(m);}
  }
- const stations=new THREE.Group(),resources=new THREE.Group(),farms=new THREE.Group(),structure=new THREE.Group(),avatars=new THREE.Group(),bridgeModels=new THREE.Group();scene.add(stations,resources,farms,structure,avatars,bridgeModels);
- const pickables:THREE.Object3D[]=[stations,resources,farms,animalGroup,structure,bridgeModels,decorative];
+ const stations=new THREE.Group(),resources=new THREE.Group(),damage=new THREE.Group(),farms=new THREE.Group(),structure=new THREE.Group(),freeStructure=new THREE.Group(),avatars=new THREE.Group(),bridgeModels=new THREE.Group();scene.add(stations,resources,damage,farms,structure,freeStructure,avatars,bridgeModels);
+ const pickables:THREE.Object3D[]=[stations,resources,farms,animalGroup,structure,freeStructure,bridgeModels,decorative];
  const targetGroup=(parent:THREE.Group,target:Target)=>{const g=new THREE.Group();g.userData.target=target;g.position.set(target.x+.5,target.y,target.z+.5);parent.add(g);return g;};
  const stationPositions=facilities(size);
  if(!underground)for(const [kind,p]of Object.entries(stationPositions)){
@@ -177,13 +178,19 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  const heldHandle=box(held,'#99704c',0,.12,0,.06,.52,.06),heldHead=box(held,'#b7cbd0',0,.4,0,.4,.09,.09),heldTip=box(held,'#8da5a7',-.17,.35,0,.065,.15,.09);
  held.traverse(o=>{if(o instanceof THREE.Mesh){const m=new THREE.MeshBasicMaterial({color:(o.material as THREE.MeshLambertMaterial).color,depthTest:false,depthWrite:false});materials.add(m);o.material=m;o.renderOrder=20;}});
  const selection=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(),new THREE.Vector3(1,1,1)),new THREE.Color('#fff4a7'));scene.add(selection);materials.add(selection.material as THREE.Material);geometries.add(selection.geometry);
- let nodeSignature='',farmSignature='',voxelSignature='',playersSignature='',bridgeSignature='',lastWidth=0,lastHeight=0,lastTime=0,disposed=false;
+ const debrisMaterial=new THREE.MeshBasicMaterial({color:'#ffffff',vertexColors:true,depthWrite:false});materials.add(debrisMaterial);
+ const debris=new THREE.InstancedMesh(cube,debrisMaterial,12),debrisObject=new THREE.Object3D();debris.visible=false;debris.frustumCulled=false;scene.add(debris);
+ let nodeSignature='',damageSignature='',farmSignature='',voxelSignature='',freeSignature='',terrainSignature='',playersSignature='',bridgeSignature='',lastWidth=0,lastHeight=0,lastTime=0,disposed=false;
  const avatarGroups=new Map<string,THREE.Group>(),nodeGroups=new Map<string,THREE.Group>();
  const eye=new THREE.Vector3(initialPos.x+.5,initialPos.y+1.55,initialPos.z+.5);let latest=initial,activeCamera:THREE.Camera=camera;
  function node(n:any){
   const g=targetGroup(resources,{kind:'resource',island,zone,id:n.id,x:n.x,y:n.y,z:n.z});nodeGroups.set(n.id,g);const color=initial.world.config.goods[n.good]?.color||'#b8b6a2';
   if(n.good==='wood'){
-   box(g,'#97724e',0,.85,0,.4,1.7,.4);box(g,forest?'#58896d':'#71996b',0,1.78,0,1.6,1.1,1.5);box(g,'#92b57b',-.05,2.43,0,1.12,.55,1.05);
+   const remaining=Math.max(1,Math.min(6,n.remaining??initial.world.config.treeLayers??3));
+   g.userData.target.y=n.y+remaining-1;
+   for(let layer=0;layer<remaining;layer++)box(g,layer%2?'#a48058':'#97724e',0,layer+.5,0,.76,.98,.76);
+   box(g,forest?'#58896d':'#71996b',0,remaining+.38,0,1.75,.8,1.65);
+   box(g,'#92b57b',-.05,remaining+.92,0,1.15,.48,1.1);
   }else if(n.good==='cotton'){
    box(g,'#839655',0,.3,0,.12,.6,.12);box(g,'#e9ecdc',-.22,.63,.06,.42,.42,.42);box(g,'#fff8e9',.19,.77,-.1,.43,.44,.44);box(g,'#c4cf9c',.05,.3,.17,.48,.13,.32);
   }else if(n.good==='oil'){
@@ -214,11 +221,11 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  function resize(){const w=Math.max(1,canvas.clientWidth),h=Math.max(1,canvas.clientHeight);if(w===lastWidth&&h===lastHeight)return;lastWidth=w;lastHeight=h;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
  const raycaster=new THREE.Raycaster();let aim:Target|null=null;
  function pick(nx=0,ny=0){
-  raycaster.far=latest.view&&latest.view!=='first'?250:6;raycaster.setFromCamera(new THREE.Vector2(nx,ny),activeCamera);
+  raycaster.far=latest.view&&latest.view!=='first'?250:5.5;raycaster.setFromCamera(new THREE.Vector2(nx,ny),activeCamera);
   // Terrain participates as an occluder, so rocks or construction cannot be selected through a hill.
   const hits=raycaster.intersectObjects([...pickables,chunks],true);
   for(const hit of hits){
-   if(hit.object.parent===chunks)return null;
+   if(hit.object.parent===chunks){if(underground)return null;const n=hit.face?.normal||new THREE.Vector3(0,1,0),x=Math.floor(hit.point.x-n.x*.01),z=Math.floor(hit.point.z-n.z*.01);if(x<0||z<0||x>=size||z>=size)return null;return{kind:'ground',island,x,y:groundHeight(latest.world,island,x,z)-1,z};}
    if(hit.instanceId!==undefined&&hit.object.userData.instanceTargets)return hit.object.userData.instanceTargets[hit.instanceId] as Target;
    const geometry=(hit.object as THREE.Mesh).geometry;
    if(geometry?.userData.targets&&hit.faceIndex!==undefined){const target=geometry.userData.targets[Math.floor(hit.faceIndex/2)] as Target|undefined;if(target)return target;}
@@ -229,23 +236,28 @@ export function createVoxelRenderer(canvas:HTMLCanvasElement,initial:WorldView){
  return {
   draw(view:WorldView,time:number){
    if(disposed)return null;latest=view;resize();const w=view.world,nation=w.nations[island];if(!nation)return null;const dt=Math.min(.1,(time-lastTime)/1000||.033);lastTime=time;
-   const now=view.timeNow?.()??Date.now(),activeNodes=Object.values(nation.nodes).filter(n=>(n.zone||'surface')===zone&&n.readyAt<=now),ns=JSON.stringify(activeNodes);
-   const animalPositions=creatureRoutes.flatMap(route=>{const g=creatures.get(route.id)!;g.visible=(nation.wildlife?.[route.id]||0)<=now;if(!g.visible)return [];const pose=animalPose(w,route,now);g.position.set(pose.x+.5,pose.y+pose.bob,pose.z+.5);g.rotation.y=pose.heading;Object.assign(g.userData.target,{x:Math.floor(pose.x),y:pose.y,z:Math.floor(pose.z)});return [{id:route.id,name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))}];});
+   const now=view.timeNow?.()??Date.now(),activeNodes=Object.values(nation.nodes).filter(n=>(n.zone||'surface')===zone&&n.readyAt<=now),ns=JSON.stringify(activeNodes.map(n=>[n.id,n.readyAt,n.remaining]));
+   if(!underground){const ts=JSON.stringify(nation.dug||{});if(ts!==terrainSignature){rebuildTerrain(w);terrainSignature=ts;}}
+   const hitAge=view.impact?time-view.impact.at:Infinity;
+   const animalPositions=creatureRoutes.flatMap(route=>{const g=creatures.get(route.id)!;g.visible=(nation.wildlife?.[route.id]||0)<=now;if(!g.visible)return [];const pose=animalPose(w,route,now);g.position.set(pose.x+.5,pose.y+pose.bob,pose.z+.5);g.rotation.y=pose.heading;g.rotation.z=view.impact?.target.kind==='animal'&&view.impact.target.id===route.id&&hitAge<350?Math.sin(hitAge*.045)*.14*(1-hitAge/350):0;Object.assign(g.userData.target,{x:Math.floor(pose.x),y:pose.y,z:Math.floor(pose.z)});return [{id:route.id,name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))}];});
    if(!underground){const cells=farmCells(w),stage=Object.fromEntries(Object.entries(nation.crops||{}).map(([key,crop])=>[key,[crop.good,cropMature(w,crop,now)]])),fs=JSON.stringify(stage);if(fs!==farmSignature){clear(farms);for(const {x,z} of cells){const crop=nation.crops?.[farmKey(x,z)],y=heightAt(size,x,z),g=targetGroup(farms,{kind:'farm',island,x,y,z});box(g,'#795c40',0,.035,0,.94,.07,.94);if(crop){const grown=cropMature(w,crop,now),h=grown?.68:.32;box(g,'#679347',0,.12+h/2,0,.15,h,.15);for(const dx of[-.22,.22])box(g,crop.good==='rice'?'#e9db92':'#d5ad54',dx,.16+h,0,.28,grown?.25:.13,.25);} }batchResources(farms);farmSignature=fs;}}
    if(ns!==nodeSignature){clear(resources);nodeGroups.clear();activeNodes.forEach(node);batchResources(resources);nodeSignature=ns;}
+   const ds=JSON.stringify(activeNodes.filter(n=>n.hits).map(n=>[n.id,n.hits,n.remaining]));if(ds!==damageSignature){clear(damage);for(const n of activeNodes.filter(n=>n.hits)){const y=n.y+(n.good==='wood'?(n.remaining??w.config.treeLayers??3)-1:0),g=targetGroup(damage,{kind:'resource',island,zone,id:n.id,x:n.x,y,z:n.z});box(g,'#3f302b',-.19,.53,.405,.055,.53,.022);if((n.hits||0)>1)box(g,'#3f302b',.08,.42,.41,.45,.05,.022);if((n.hits||0)>2)box(g,'#3f302b',.24,.67,.412,.05,.42,.022);}batch(damage);damageSignature=ds;}
    const vs=JSON.stringify(nation.voxels)+view.origin;
    if(!underground&&vs!==voxelSignature){clear(structure);const blocks=voxelBlocks(nation.voxels,w.config,view.origin,{x:plot.x,y:1,z:plot.z},island),set=new Set(blocks.map(b=>key(b.x,b.y,b.z)));if(blocks.length)structure.add(new THREE.Mesh(geo(blockGeometry(blocks,(x,y,z)=>set.has(key(x,y,z)))),vertexMaterial));voxelSignature=vs;}
+   if(!underground){const fs=JSON.stringify(nation.freeVoxels||{});if(fs!==freeSignature){clear(freeStructure);const blocks=voxelBlocks(nation.freeVoxels||{},w.config,view.origin,{x:0,y:0,z:0},island).map(b=>({...b,target:{...b.target!,kind:'freeVoxel' as const}})),set=new Set(blocks.map(b=>key(b.x,b.y,b.z)));if(blocks.length)freeStructure.add(new THREE.Mesh(geo(blockGeometry(blocks,(x,y,z)=>set.has(key(x,y,z)))),vertexMaterial));freeSignature=fs;}}
    const bs=JSON.stringify(w.bridges);if(!underground&&bs!==bridgeSignature){rebuildBridges(w);bridgeSignature=bs;}
    const players=Object.values(w.players).filter(p=>(p.location||p.nation)===island&&(p.zone||'surface')===zone&&p.id!==view.uid),ps=JSON.stringify(players.map(p=>[p.id,p.nickname,p.nation]));
    if(ps!==playersSignature){clear(avatars);avatarGroups.clear();for(const p of players){const g=new THREE.Group();avatars.add(g);avatarGroups.set(p.id,g);const color=w.config.templates.find((t:any)=>t.id===p.nation)?.color||'#7cab9c';box(g,'#526970',-.16,.3,0,.23,.6,.29);box(g,'#526970',.16,.3,0,.23,.6,.29);box(g,color,0,.94,0,.63,.69,.37);box(g,'#ebc9a7',0,1.49,0,.48,.43,.45);box(g,'#6d6658',0,1.74,-.02,.53,.12,.48);textLabel(g,p.nickname,0,2.13,0,'#46675e',.4);}playersSignature=ps;}
    for(const[id,g]of avatarGroups){const reported=view.positions[id],p=reported?.island===island&&(reported.zone||'surface')===zone?reported:spawn(w,id),t=new THREE.Vector3(p.x+.5,p.y,p.z+.5);if(!g.userData.placed){g.position.copy(t);g.userData.placed=true;}else g.position.lerp(t,1-Math.exp(-dt*12));}
-   const p=view.positions[view.uid]||spawn(w,view.uid),desired=new THREE.Vector3(p.x+.5,p.y+1.55+(view.jump||0),p.z+.5);eye.lerp(desired,1-Math.exp(-dt*18));camera.position.copy(eye);camera.rotation.set(THREE.MathUtils.clamp(view.pitch,-1.4,1.4),view.yaw,0,'YXZ');camera.updateMatrixWorld();
+   const p=view.positions[view.uid]||spawn(w,view.uid),desired=new THREE.Vector3(p.x+.5,p.y+1.55+(view.jump||0),p.z+.5);eye.lerp(desired,1-Math.exp(-dt*18));camera.position.copy(eye);if(hitAge<180){const shake=(1-hitAge/180)*.045;camera.position.x+=Math.sin(hitAge*.24)*shake;camera.position.y+=Math.cos(hitAge*.31)*shake;}camera.rotation.set(THREE.MathUtils.clamp(view.pitch,-1.4,1.4),view.yaw,0,'YXZ');camera.updateMatrixWorld();
    const mode=view.view||'first',overview=mode!=='first';activeCamera=overview?orthographic:camera;held.visible=!overview;clouds.visible=!overview&&!underground;
    if(overview){const full=mode==='top'&&!w.players[view.uid],aspect=lastWidth/lastHeight,half=(full?size*.57:Math.max(4,plotSize*.85))/Math.min(1,aspect);orthographic.left=-half*aspect;orthographic.right=half*aspect;orthographic.top=half;orthographic.bottom=-half;const c=full?new THREE.Vector3(size/2,0,size/2):new THREE.Vector3(plot.x+plotSize/2,2,plot.z+plotSize/2);orthographic.position.copy(c).add(mode==='top'?new THREE.Vector3(0,90,.001):mode==='front'?new THREE.Vector3(0,0,35):new THREE.Vector3(-35,0,0));orthographic.lookAt(c);orthographic.updateProjectionMatrix();orthographic.updateMatrixWorld();scene.fog=null;}else scene.fog=new THREE.Fog(underground?'#182329':'#c3e2ec',underground?14:low?55:90,underground?48:low?140:230);
    const tools=w.players[view.uid]?.tools||{},tool=tools.pickaxe?'pickaxe':tools.axe?'axe':'hand';heldHandle.visible=tool!=='hand';heldHead.visible=tool!=='hand';heldTip.visible=tool==='pickaxe';heldHead.scale.set(tool==='axe'?.23:.4,tool==='axe'?.24:.09,.09);heldHead.position.x=tool==='axe'?-.07:0;canvas.dataset.tool=tool;
-   held.rotation.x=view.mining?-.45+Math.sin(time*.023)*.65:-.1;held.rotation.z=view.mining?-.22+Math.sin(time*.023)*.17:-.22;held.position.y=-.35+Math.sin(time*.003)*.006;
+   held.rotation.x=view.mining||hitAge<250?-.45+Math.sin(time*.023)*.65:-.1;held.rotation.z=view.mining||hitAge<250?-.22+Math.sin(time*.023)*.17:-.22;held.position.y=-.35+Math.sin(time*.003)*.006;
+   if(view.impact&&hitAge>=0&&hitAge<430){const target=view.impact.target,progress=hitAge/430,base=new THREE.Vector3(target.x+.5,target.y+(target.kind==='animal'?.95:.55),target.z+.5),color=new THREE.Color(target.kind==='animal'?'#eea387':target.kind==='resource'&&nation.nodes[target.id!]?.good==='wood'?'#bd8a56':'#c7bda8');debris.visible=true;for(let i=0;i<12;i++){const angle=i*2.399+view.impact.seq*.41,speed=.5+(i%4)*.22;debrisObject.position.set(base.x+Math.cos(angle)*progress*speed,base.y+Math.sin(angle*2)*progress*.45+progress*.5-progress*progress*.8,base.z+Math.sin(angle)*progress*speed);debrisObject.scale.setScalar(Math.max(.01,.13*(1-progress)));debrisObject.updateMatrix();debris.setMatrixAt(i,debrisObject.matrix);debris.setColorAt(i,color);}debris.instanceMatrix.needsUpdate=true;if(debris.instanceColor)debris.instanceColor.needsUpdate=true;}else debris.visible=false;
    renderer.render(scene,activeCamera);aim=pick();selection.visible=!!aim&&!overview;
-   if(aim){const h=aim.kind==='resource'?1:1;selection.box.min.set(aim.x-.015,aim.y-.015,aim.z-.015);selection.box.max.set(aim.x+1.015,aim.y+h+.015,aim.z+1.015);selection.updateMatrixWorld();}
+   if(aim){const h=1;selection.box.min.set(aim.x-.015,aim.y-.015,aim.z-.015);selection.box.max.set(aim.x+1.015,aim.y+h+.015,aim.z+1.015);(selection.material as THREE.LineBasicMaterial).color.set(hitAge<180?'#ff8f49':'#fff4a7');selection.updateMatrixWorld();}
    canvas.dataset.zone=zone;canvas.dataset.renderer='webgl';canvas.dataset.view=mode;canvas.dataset.aim=JSON.stringify(aim);canvas.dataset.animals=JSON.stringify(animalPositions);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);return aim;
   },
   targetAt(clientX:number,clientY:number){const rect=canvas.getBoundingClientRect();return pick((clientX-rect.left)/rect.width*2-1,1-(clientY-rect.top)/rect.height*2);},

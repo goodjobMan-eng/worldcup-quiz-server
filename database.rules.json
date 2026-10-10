@@ -282,7 +282,7 @@
             "$uid": {
               "$id": {
                 ".write": "auth != null && ((auth.uid === $uid && root.child('sandboxes').child($server).child($code).child('members').child(auth.uid).exists() && !data.exists() && newData.exists()) || (root.child('sandboxes').child($server).child($code).child('state/teacher').val() === auth.uid && auth.token.firebase.sign_in_provider === 'google.com' && !newData.exists()))",
-                ".validate": "newData.hasChildren(['id','type']) && newData.child('id').val() === $id && newData.child('type').isString() && newData.child('type').val().matches(/^(join|enterMine|exitMine|mine|hunt|plant|harvest|eat|tool|warehouse|craft|bridge|visit|return|tradeRequest|tradeEdit|tradeCancel|tradeConfirm|plan|place|remove|register|cheer|signal|reflect)$/)"
+                ".validate": "newData.hasChildren(['id','type']) && newData.child('id').val() === $id && newData.child('type').isString() && newData.child('type').val().matches(/^(join|enterMine|exitMine|mine|hunt|plant|harvest|eat|dig|placeFree|removeFree|tool|warehouse|craft|bridge|visit|return|tradeRequest|tradeEdit|tradeCancel|tradeConfirm|plan|place|remove|register|cheer|signal|reflect)$/)"
               }
             }
           },

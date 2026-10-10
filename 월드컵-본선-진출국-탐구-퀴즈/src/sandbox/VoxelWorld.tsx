@@ -4,14 +4,14 @@ import {farmCells,farmKey,cropMature} from './farming';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { facilities, heightAt, plotOrigin, spawn } from './terrain';
+import { facilities, heightAt, groundHeight, land, plotOrigin, spawn } from './terrain';
 import type { Target, Voxel } from './types';
 import { blockGeometry, createVoxelRenderer, voxelBlocks, type WorldView } from './voxelRenderer';
 
 export type VoxelWorldProps=WorldView&{onLook:(dx:number,dy:number)=>void;onAim:(target:Target|null)=>void;onInteract?:(target:Target)=>void};
 export default function VoxelWorld(props:VoxelWorldProps){
  const canvas=useRef<HTMLCanvasElement>(null),current=useRef(props);current.current=props;
- const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number}|null>(null),fallbackAim=useRef<Target|null>(null),rendererRef=useRef<ReturnType<typeof createVoxelRenderer>|null>(null);
+ const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;held:boolean;target:Target|null}|null>(null),holdDelay=useRef<ReturnType<typeof setTimeout>|null>(null),holdRepeat=useRef<ReturnType<typeof setInterval>|null>(null),fallbackAim=useRef<Target|null>(null),rendererRef=useRef<ReturnType<typeof createVoxelRenderer>|null>(null);
  const[fallback,setFallback]=useState(false);
  const position=props.positions[props.uid]||spawn(props.world,props.uid),island=position.island,zone=position.zone||'surface';
  useEffect(()=>{
@@ -27,14 +27,14 @@ export default function VoxelWorld(props:VoxelWorldProps){
    const width=Math.max(1,el.clientWidth),height=Math.max(1,el.clientHeight);if(el.width!==width||el.height!==height){el.width=width;el.height=height;}
    const scale=Math.min(width,height)/size,ox=(width-size*scale)/2,oy=(height-size*scale)/2;
    ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#bfdee3';ctx.fillRect(0,0,width,height);ctx.setTransform(scale,0,0,scale,ox,oy);
-   for(let z=0;z<size;z++)for(let x=0;x<size;x++){const h=zone==='mine'?(mineLand(w,x,z)?1:-1):heightAt(size,x,z);if(h<0)continue;ctx.fillStyle=zone==='mine'?'#53636a':h>1?'#94b689':'#b6ca9e';ctx.fillRect(x,z,1,1);}
+   for(let z=0;z<size;z++)for(let x=0;x<size;x++){const h=zone==='mine'?(mineLand(w,x,z)?1:-1):groundHeight(w,island,x,z);if(h<0)continue;ctx.fillStyle=zone==='mine'?'#53636a':h>1?'#94b689':'#b6ca9e';ctx.fillRect(x,z,1,1);}
    const targets:Target[]=[];
    for(const resource of Object.values(n.nodes)){if((resource.zone||'surface')!==zone||resource.readyAt>Date.now())continue;ctx.fillStyle=w.config.goods[resource.good]?.color||'#899998';ctx.fillRect(resource.x+.08,resource.z+.08,.84,.84);targets.push({kind:'resource',island,zone,id:resource.id,x:resource.x,y:resource.y,z:resource.z});}
    if(zone==='surface')for(const{x,z}of farmCells(w)){const crop=n.crops?.[farmKey(x,z)];ctx.fillStyle=crop?(cropMature(w,crop,p.timeNow?.()??Date.now())?'#d9bb67':'#83a967'):'#795c40';ctx.fillRect(x+.08,z+.08,.84,.84);targets.push({kind:'farm',island,x,y:heightAt(size,x,z),z});}
    if(zone==='surface')for(const[kind,f]of Object.entries(facilities(size))){ctx.fillStyle='#b08b65';ctx.fillRect(f.x-.1,f.z-.1,1.2,1.2);targets.push({kind:kind as Target['kind'],island,x:f.x,y:heightAt(size,f.x,f.z),z:f.z});}
    const portal=zone==='mine'?mineExit(w):mineEntrance(size);ctx.fillStyle='#e6c57f';ctx.fillRect(portal.x,portal.z,1,1);targets.push({...portal,y:zone==='mine'?mineFloor(w):heightAt(size,portal.x,portal.z),island,zone,kind:zone==='mine'?'mineExit':'mineEntrance'});
    const plot=plotOrigin(size),ps=w.stage>=3?(w.config.freePlot?.size||16):(w.config.plot?.size||5);ctx.strokeStyle='#fff5d4';ctx.lineWidth=.1;ctx.strokeRect(plot.x,plot.z,ps,ps);
-   for(const v of Object.values(n.voxels)){ctx.fillStyle=w.config.goods[v.unit.good]?.color||'#c6bda1';ctx.fillRect(plot.x+v.x+.03,plot.z+v.z+.03,.94,.94);}
+   for(const v of Object.values(n.voxels)){ctx.fillStyle=w.config.goods[v.unit.good]?.color||'#c6bda1';ctx.fillRect(plot.x+v.x+.03,plot.z+v.z+.03,.94,.94);}for(const v of Object.values(n.freeVoxels||{})){ctx.fillStyle=w.config.goods[v.unit.good]?.color||'#c6bda1';ctx.fillRect(v.x+.03,v.z+.03,.94,.94);targets.push({kind:'freeVoxel',island,x:v.x,y:v.y,z:v.z,gridX:v.x,gridY:v.y,gridZ:v.z});}
    const animalPositions=fallbackAnimals.flatMap(route=>{if((n.wildlife?.[route.id]||0)>(p.timeNow?.()??Date.now()))return [];const pose=animalPose(w,route,p.timeNow?.()??Date.now());ctx.fillStyle=route.kind==='frog'?'#79a95d':route.kind==='camel'?'#caa16a':route.kind==='deer'?'#a87a50':'#e7dfcb';ctx.beginPath();ctx.arc(pose.x+.5,pose.z+.5,.42,0,Math.PI*2);ctx.fill();ctx.fillStyle='#31443c';ctx.font='1.1px sans-serif';ctx.textAlign='center';ctx.fillText(route.name,pose.x+.5,pose.z-.15);targets.push({kind:'animal',island,id:route.id,x:Math.floor(pose.x),y:pose.y,z:Math.floor(pose.z)});return[{id:route.id,name:route.name,kind:route.kind,x:Number(pose.x.toFixed(2)),z:Number(pose.z.toFixed(2))}];});
    const own=p.positions[p.uid]||spawn(w,p.uid);ctx.fillStyle='#3768a0';ctx.beginPath();ctx.arc(own.x+.5,own.z+.5,.42,0,Math.PI*2);ctx.fill();
    const aim=fallbackAim.current;if(aim){ctx.strokeStyle='#fff';ctx.lineWidth=.17;ctx.strokeRect(aim.x,aim.z,1,1);}
@@ -42,16 +42,16 @@ export default function VoxelWorld(props:VoxelWorldProps){
   }
   function draw(time:number){frame=requestAnimationFrame(draw);if(!visible||document.hidden||time-last<32)return;last=time;const target=renderer?renderer.draw(current.current,time):drawFallback();if(time-lastAim>75){lastAim=time;const next=JSON.stringify(target);if(next!==aimKey){aimKey=next;current.current.onAim(target);}}}
   frame=requestAnimationFrame(draw);
-  return()=>{cancelAnimationFrame(frame);observer?.disconnect();el.removeEventListener('webglcontextlost',lost);renderer?.dispose();rendererRef.current=null;};
+  return()=>{cancelAnimationFrame(frame);if(holdDelay.current)clearTimeout(holdDelay.current);if(holdRepeat.current)clearInterval(holdRepeat.current);observer?.disconnect();el.removeEventListener('webglcontextlost',lost);renderer?.dispose();rendererRef.current=null;};
  },[island,zone,props.world.config.size,props.world.stage,props.quality,fallback]);
+ const stopHold=()=>{if(holdDelay.current){clearTimeout(holdDelay.current);holdDelay.current=null;}if(holdRepeat.current){clearInterval(holdRepeat.current);holdRepeat.current=null;}};
+ const targetAt=(clientX:number,clientY:number):Target|null=>{const el=canvas.current;if(!el)return null;if(!fallback)return rendererRef.current?.targetAt(clientX,clientY)||null;const r=el.getBoundingClientRect(),x=(clientX-r.left)/r.width,y=(clientY-r.top)/r.height,targets=JSON.parse(el.dataset.targets||'[]') as {target:Target;screen:number[]}[];const scale=Math.min(r.width,r.height)/props.world.config.size,threshold=scale/r.width*.85;const match=targets.sort((a,b)=>Math.hypot(a.screen[0]-x,a.screen[1]-y)-Math.hypot(b.screen[0]-x,b.screen[1]-y))[0];if(match&&Math.hypot(match.screen[0]-x,match.screen[1]-y)<threshold)return match.target;if(zone==='mine')return null;const ox=(r.width-props.world.config.size*scale)/2,oy=(r.height-props.world.config.size*scale)/2,gx=Math.floor((clientX-r.left-ox)/scale),gz=Math.floor((clientY-r.top-oy)/scale);return land(props.world.config.size,gx,gz)?{kind:'ground',island,x:gx,y:groundHeight(props.world,island,gx,gz)-1,z:gz}:null;};
  return <div style={{position:'relative',width:'100%',height:'100%',minHeight:240,background:'#c3e2ec'}}>
   <canvas key={fallback?'flat-'+zone:`voxel-${island}-${zone}-${props.quality||'normal'}-${props.world.stage}-${props.world.config.size}`} ref={canvas} className="voxel-world-canvas" role="img" aria-label={`${props.world.config.templates.find((t:any)=>t.id===island)?.name||island} ${fallback?'2D 지도':'1인칭 블록 세계'}`} style={{display:'block',width:'100%',height:'100%',touchAction:'none',cursor:'grab'}}
-   onPointerDown={e=>{
-    if(drag.current||e.button!==0||props.view&&props.view!=='first')return;drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};e.currentTarget.setPointerCapture(e.pointerId);
-   }}
-   onPointerMove={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;if(!fallback)current.current.onLook(e.clientX-d.x,e.clientY-d.y);drag.current={...d,x:e.clientX,y:e.clientY};}}
-   onPointerUp={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;drag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);if(Math.hypot(e.clientX-d.startX,e.clientY-d.startY)>12)return;let target:Target|null=null;if(fallback){const r=e.currentTarget.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height,targets=JSON.parse(e.currentTarget.dataset.targets||'[]') as {target:Target;screen:number[]}[];const match=targets.sort((a,b)=>Math.hypot(a.screen[0]-x,a.screen[1]-y)-Math.hypot(b.screen[0]-x,b.screen[1]-y))[0];target=match&&Math.hypot(match.screen[0]-x,match.screen[1]-y)<.065?match.target:null;fallbackAim.current=target;}else target=rendererRef.current?.targetAt(e.clientX,e.clientY)||null;current.current.onAim(target);if(target)current.current.onInteract?.(target);}}
-   onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}}
+   onPointerDown={e=>{if(drag.current||e.button!==0||props.view&&props.view!=='first')return;const target=targetAt(e.clientX,e.clientY);drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,held:false,target};e.currentTarget.setPointerCapture(e.pointerId);if(target&&['resource','animal','ground','voxel','freeVoxel'].includes(target.kind)){const id=e.pointerId;holdDelay.current=setTimeout(()=>{if(drag.current?.id!==id)return;drag.current.held=true;current.current.onAim(target);current.current.onInteract?.(target);holdRepeat.current=setInterval(()=>{if(drag.current?.id===id)current.current.onInteract?.(target);},460);},300);}}}
+   onPointerMove={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const moved=Math.hypot(e.clientX-d.startX,e.clientY-d.startY)>12;if(moved)stopHold();if(!fallback)current.current.onLook(e.clientX-d.x,e.clientY-d.y);drag.current={...d,x:e.clientX,y:e.clientY};}}
+   onPointerUp={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;stopHold();drag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);if(d.held||Math.hypot(e.clientX-d.startX,e.clientY-d.startY)>12)return;const target=targetAt(e.clientX,e.clientY);fallbackAim.current=target;current.current.onAim(target);if(target)current.current.onInteract?.(target);}}
+   onPointerCancel={()=>{stopHold();drag.current=null;}} onLostPointerCapture={()=>{stopHold();drag.current=null;}}
   />
   {fallback&&<div role="status" style={{position:'absolute',top:8,left:8,right:8,padding:10,borderRadius:10,background:'#fffae6ee',color:'#496852',fontSize:12,pointerEvents:'none'}}>3D를 사용할 수 없어 2D 지도로 표시합니다. 가까운 자원을 눌러 선택할 수 있어요.</div>}
  </div>;

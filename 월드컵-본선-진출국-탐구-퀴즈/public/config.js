@@ -494,13 +494,17 @@ globalThis.NATIONLAB_CONFIG = {
 globalThis.NATIONLAB_CONFIG.experience = "sandbox";
 globalThis.NATIONLAB_CONFIG.sandbox = {
   size: 96, height: 32,
-  mine:{floor:-8,ceiling:-2,margin:8,stone:24}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
+  mine:{floor:-8,ceiling:-2,margin:8,stone:24,coal:12}, activeNations: ["hualian", "hinomi", "sahar", "lumina"],
   animals:{
     hualian:{kind:"sheep",name:"양",count:5,loot:{wool:1}},indra:{kind:"frog",name:"개구리",count:4,loot:{}},
     hinomi:{kind:"deer",name:"사슴",count:4,loot:{meat:1}},beloa:{kind:"rabbit",name:"토끼",count:4,loot:{meat:1}},
     sahar:{kind:"camel",name:"낙타",count:4,loot:{wool:1}},lumina:{kind:"goat",name:"염소",count:4,loot:{meat:1}}
   },
   animalRespawnSeconds:180,
+  treeLayers:3,
+  hitCounts:{wood:3,stone:3,iron:4,copper:4,animal:2,default:2},
+  terrainDigDepth:2, freeBuildLimit:600, freeBuildHeight:8,
+  fuelSubstitutes:["coal","charcoal"],
   farm:{size:4,growSeconds:90,harvestAmount:2,starterCrops:4},
   hotbar:["wood","stone","riceSeed","wheatSeed","rice","wheat","wool","meat","plank"],
   totalLessons: 8, lessonMinutes: 40, maxStudents: 40,
@@ -515,6 +519,8 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     cotton:{name:"목화",color:"#eee3d4",raw:true},iron:{name:"철광석",color:"#ac7353",raw:true,tool:"pickaxe"},
     oil:{name:"원유",color:"#494352",raw:true},sand:{name:"모래",color:"#dec17f",raw:true},
     clay:{name:"점토",color:"#b77763",raw:true},copper:{name:"구리",color:"#be8d54",raw:true,tool:"pickaxe"},
+    dirt:{name:"흙",color:"#806a4d",raw:true},coalOre:{name:"석탄 원석",color:"#535961",raw:true,tool:"pickaxe"},
+    coal:{name:"석탄",color:"#373c42"},charcoal:{name:"목탄",color:"#56504b"},
     fuel:{name:"정제 연료",color:"#e2ac44"},
     riceSeed:{name:"벼 씨앗",color:"#b6a45d",raw:true,placeable:false},wheatSeed:{name:"밀 씨앗",color:"#c7ad62",raw:true,placeable:false},
     rice:{name:"쌀",color:"#eee0ab",raw:true,placeable:false},wheat:{name:"밀",color:"#d8bc77",raw:true,placeable:false},
@@ -523,11 +529,12 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
     plank:{name:"판자",color:"#cda476"},masonry:{name:"석재",color:"#9baaad"},cloth:{name:"천",color:"#b3bedc"},
     brick:{name:"붉은 벽돌",color:"#bf6951"},plate:{name:"철판",color:"#b7c7cf"},glass:{name:"유리",color:"#85d9d2"},copperplate:{name:"구리판",color:"#dc9e68"}
   },
-  technologies:{weaving:"직조",kiln:"가마",steel:"제철",glass:"유리",metal:"금속 세공",refining:"원유 정제"},
+  technologies:{weaving:"직조",kiln:"가마",steel:"제철",glass:"유리",metal:"금속 세공",refining:"원유 정제",carbonization:"목탄 제조",coalProcessing:"석탄 가공"},
   recipes:{
     plank:{inputs:{wood:1},output:2},masonry:{inputs:{stone:1},output:1},
     cloth:{inputs:{cotton:2},output:1,technology:"weaving"},brick:{inputs:{clay:2},output:1,technology:"kiln"},
     fuel:{inputs:{oil:2},output:2,technology:"refining"},
+    charcoal:{inputs:{wood:2},output:2,technology:"carbonization"},coal:{inputs:{coalOre:2},output:2,technology:"coalProcessing"},
     plate:{inputs:{iron:2,fuel:1},output:1,technology:"steel"},glass:{inputs:{sand:2,fuel:1},output:1,technology:"glass"},
     copperplate:{inputs:{copper:2},output:1,technology:"metal"},
     riceBall:{inputs:{rice:2},output:1},bread:{inputs:{wheat:2},output:1},cookedMeat:{inputs:{meat:1,wood:1},output:1}
@@ -535,10 +542,10 @@ globalThis.NATIONLAB_CONFIG.sandbox = {
   templates:[
     {id:"hualian",name:"화련 연방",short:"화련",color:"#db9568",biome:"평원",weight:5,specialties:{iron:12,cotton:14},technologies:["weaving"]},
     {id:"indra",name:"인드라 연합",short:"인드라",color:"#c58c86",biome:"습지",weight:5,specialties:{clay:14,cotton:12},technologies:["kiln"]},
-    {id:"hinomi",name:"히노미 섬나라",short:"히노미",color:"#8ab7a8",biome:"숲",weight:2,specialties:{clay:8},technologies:["steel","glass"]},
+    {id:"hinomi",name:"히노미 섬나라",short:"히노미",color:"#8ab7a8",biome:"숲",weight:2,specialties:{clay:8},technologies:["steel","glass","carbonization"]},
     {id:"beloa",name:"벨로아 연합",short:"벨로아",color:"#ac9bbd",biome:"언덕",weight:3,specialties:{copper:8},technologies:["metal","weaving"]},
     {id:"sahar",name:"사하르 왕국",short:"사하르",color:"#d1b266",biome:"사막",weight:3,specialties:{oil:16,sand:18},technologies:[]},
-    {id:"lumina",name:"루미나 연방",short:"루미나",color:"#90aacb",biome:"광산",weight:2,specialties:{iron:12,copper:12},technologies:["refining"]}
+    {id:"lumina",name:"루미나 연방",short:"루미나",color:"#90aacb",biome:"광산",weight:2,specialties:{iron:12,copper:12},technologies:["refining","coalProcessing"]}
   ],
   commonResources:{wood:32,stone:28},
   blueprints:[

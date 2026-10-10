@@ -42,4 +42,34 @@ export function upgradeFeatures(w:SandboxWorld){
   }
   w.featuresVersion=3;
  }
+ if((w.featuresVersion||0)<4){
+  const current=(globalThis as any).NATIONLAB_CONFIG?.sandbox;
+  w.config.treeLayers||=current?.treeLayers||3;
+  w.config.hitCounts||=structuredClone(current?.hitCounts||{wood:3,stone:3,iron:4,copper:4,animal:2,default:2});
+  for(const n of Object.values(w.nations))n.wildlifeHits||={};
+  w.featuresVersion=4;
+ }
+ if((w.featuresVersion||0)<5){
+  const current=(globalThis as any).NATIONLAB_CONFIG?.sandbox;
+  if(current){
+   for(const [good,spec]of Object.entries(current.goods))w.config.goods[good]||=structuredClone(spec);
+   for(const [good,recipe]of Object.entries(current.recipes))w.config.recipes[good]||=structuredClone(recipe);
+   for(const [tech,name]of Object.entries(current.technologies))w.config.technologies[tech]||=name;
+   for(const spec of w.config.templates){const added=current.templates.find((t:any)=>t.id===spec.id);spec.technologies||=[];for(const tech of added?.technologies||[])if(!spec.technologies.includes(tech))spec.technologies.push(tech);}
+  }
+  w.config.mine.coal??=current?.mine?.coal??12;
+  w.config.terrainDigDepth??=current?.terrainDigDepth??2;
+  w.config.freeBuildLimit??=current?.freeBuildLimit??600;
+  w.config.freeBuildHeight??=current?.freeBuildHeight??8;
+  w.config.fuelSubstitutes??=structuredClone(current?.fuelSubstitutes||['coal','charcoal']);
+  for(const n of Object.values(w.nations)){
+   n.freeVoxels||={};n.dug||={};
+   const used=new Set(Object.values(n.nodes).filter(node=>node.zone==='mine').map(node=>`${node.x}_${node.z}`));
+   const exit=mineExit(w),spots:{x:number;z:number}[]=[];
+   for(let z=w.config.mine.margin+3;z<w.config.size-w.config.mine.margin-3;z+=3)for(let x=w.config.mine.margin+3;x<w.config.size-w.config.mine.margin-3;x+=3)if(mineLand(w,x,z)&&!minePillar(w,x,z)&&Math.abs(x-exit.x)>2&&!used.has(`${x}_${z}`))spots.push({x,z});
+   spots.sort((a,b)=>((Math.imul(a.x,73856093)^Math.imul(a.z,19349663))>>>0)-((Math.imul(b.x,73856093)^Math.imul(b.z,19349663))>>>0));
+   for(let i=0;i<w.config.mine.coal;i++){const spot=spots[i];if(!spot)break;const id=`coal-${i}`;n.nodes[id]||={id,good:'coalOre',zone:'mine',x:spot.x,z:spot.z,y:mineFloor(w),readyAt:0};}
+  }
+  w.featuresVersion=5;
+ }
 }

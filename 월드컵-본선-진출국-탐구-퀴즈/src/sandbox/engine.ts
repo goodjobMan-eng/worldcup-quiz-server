@@ -1,6 +1,6 @@
 import {upgradeFeatures} from './features';
 import type {SandboxWorld,Player,Goods,Unit,Command,Pos,Bridge,Trade} from './types';
-import {heightAt,land,facilities,bridgeStation,plotOrigin,spawn,reachable,mineEntrance,mineExit} from './terrain';
+import {heightAt,land,facilities,bridgeStation,plotOrigin,spawn,reachable,mineEntrance,mineExit,groundHeight,protectedTile,surfaceHeight} from './terrain';
 import {makeBlueprint,heightsOf,compare} from './math';
 import {animalRoutes,animalPose} from './animals';
 import {farmCells,farmKey,cropMature} from './farming';
@@ -12,7 +12,7 @@ function collection(v:any):any[]{return Array.isArray(v)?v.filter(Boolean):Objec
 export function normalize(raw:SandboxWorld):SandboxWorld {
  const w=structuredClone(raw);upgradeFeatures(w);for(const t of w.config.templates)t.technologies||=[];w.players||={};w.trades||={};w.receipts||={};w.logs=collection(w.logs);
  function goods(g:Goods|undefined):Goods{return Object.fromEntries(Object.keys(w.config.goods).map(k=>[k,collection(g?.[k])]));}
- for(const n of Object.values(w.nations)){n.stock=goods(n.stock);n.nodes||={};n.voxels||={};n.crops||={};n.wildlife||={};n.plan||=Array.from({length:w.config.plot.size},()=>Array(w.config.plot.size).fill(0));if(n.registration)n.registration.cheers||={};}
+ for(const n of Object.values(w.nations)){n.stock=goods(n.stock);n.nodes||={};n.voxels||={};n.freeVoxels||={};n.dug||={};n.groundHits||={};n.crops||={};n.wildlife||={};n.wildlifeHits||={};n.plan||=Array.from({length:w.config.plot.size},()=>Array(w.config.plot.size).fill(0));if(n.registration)n.registration.cheers||={};}
  for(const p of Object.values(w.players)){p.bag=goods(p.bag);p.tools||={};p.zone||='surface';p.reflections||={};p.learned||={mined:0,crafted:0,traded:0,built:0,planned:0};}
  for(const b of Object.values(w.bridges)){b.halves||={};for(const id of [b.a,b.b]){b.halves[id]||={};for(const good of Object.keys(w.config.bridge))b.halves[id][good]=collection(b.halves[id][good]);}}
  for(const t of Object.values(w.trades)){t.confirms||={};t.give||={};t.receive||={};}
@@ -38,7 +38,7 @@ function take(g:Goods,good:string,n:number){quantity(n);assert(g[good]&&g[good].
 function put(g:Goods,units:Unit[]){for(const u of units){g[u.good]||=[];g[u.good].push(u);}}
 function basket(w:SandboxWorld,b:any):Record<string,number>{assert(b&&typeof b==='object'&&!Array.isArray(b),'품목을 확인해 주세요.');const out:Record<string,number>={};for(const [g,n] of Object.entries(b)){assert(w.config.goods[g],'없는 블록이에요.');out[g]=quantity(n);}return out;}
 function position(w:SandboxWorld,p:Player,positions:Record<string,Pos>){const pos=positions[p.id];return pos?.island===p.location&&(pos.zone||'surface')===(p.zone||'surface')?pos:spawn(w,p.id);}
-function validNear(w:SandboxWorld,p:Player,positions:Record<string,Pos>,target:{x:number;z:number;zone?:'surface'|'mine'},island=p.location){assert(reachable(position(w,p,positions),{...target,island}),'가까이 다가가 주세요.');}
+function validNear(w:SandboxWorld,p:Player,positions:Record<string,Pos>,target:{x:number;z:number;zone?:'surface'|'mine'},island=p.location,distance=2.5){assert(reachable(position(w,p,positions),{...target,island},distance),'가까이 다가가 주세요.');}
 function bridgeBetween(w:SandboxWorld,a:string,b:string){return Object.values(w.bridges).find(t=>(t.a===a&&t.b===b)||(t.a===b&&t.b===a));}
 function tradeNear(w:SandboxWorld,t:Trade,positions:Record<string,Pos>){const a=w.players[t.a],b=w.players[t.b];assert(a&&b&&a.nation!==b.nation,'다른 나라 친구와 거래해요.');const bridge=bridgeBetween(w,a.nation,b.nation);assert(bridge&&bridgeReady(w,bridge),'이웃 나라와 다리 양쪽을 먼저 완성해 주세요.');for(const p of [a,b]){assert(p.zone!=='mine','지상 다리 교역소로 와 주세요.');assert(!p.dispatch,'파견 중에는 새로운 거래를 시작할 수 없어요.');assert(p.location===bridge.a||p.location===bridge.b,'거래할 두 나라의 다리로 와 주세요.');const s=bridgeStation(w,p.location,bridge.id);validNear(w,p,positions,s);}return bridge!;}
 export function apply(raw:SandboxWorld,actor:string,cmd:Command,positions:Record<string,Pos>={},now=Date.now()):SandboxWorld{
@@ -59,14 +59,70 @@ export function apply(raw:SandboxWorld,actor:string,cmd:Command,positions:Record
  case 'tick':host();if(w.phase==='playing'&&now>=w.endsAt){w.phase='paused';w.remainingMs=0;}break;
  case 'enterMine': {active();assert(!p.dispatch,'파견 중에는 광산에 들어가지 않아요.');assert(p.zone==='surface','이미 지하에 있어요.');const entrance=mineEntrance(w.config.size);validNear(w,p,positions,entrance);p.zone='mine';delete p.arrival;text=`${p.nickname}: 광산 입구를 지나 지하로 내려왔어요.`;break;}
  case 'exitMine': {active();assert(p.zone==='mine','지하에서만 나갈 수 있어요.');validNear(w,p,positions,{...mineExit(w),zone:'mine'});p.zone='surface';p.arrival='mine';text=`${p.nickname}: 광산에서 지상으로 나왔어요.`;break;}
- case 'mine': {own();const n=w.nations[p.nation].nodes[cmd.node];assert(n&&n.readyAt<=now,'이미 캐낸 자원이에요. 다시 자랄 때까지 기다려 주세요.');validNear(w,p,positions,n);assert(p.stamina>0,'체력을 모두 썼어요. 잠시 쉬며 거래·계획을 해 보세요.');const tool=w.config.goods[n.good].tool;assert(!tool||p.tools[tool as 'pickaxe'],'곡괭이를 먼저 만들어 주세요.');p.stamina--;n.readyAt=now+w.config.resourceSeconds*1000;p.bag[n.good].push({id,good:n.good,sources:{[p.nation]:{[n.good]:1}}});p.learned.mined++;text=`${p.nickname}: ${w.config.goods[n.good].name} 1개를 가방에 넣었어요.`;economic=true;break;}
- case 'hunt': {own();assert(p.zone!=='mine','동물은 지상에서 만날 수 있어요.');const route=animalRoutes(w,p.nation).find(a=>a.id===cmd.animal);assert(route,'동물을 다시 찾아 주세요.');const n=w.nations[p.nation];assert((n.wildlife?.[route.id]||0)<=now,'동물이 다시 나타날 때까지 기다려 주세요.');const pose=animalPose(w,route,now);validNear(w,p,positions,{x:pose.x,z:pose.z,zone:'surface'});assert(p.stamina>0,'체력이 부족해요.');const loot=w.config.animals[p.nation]?.loot||{};if(!Object.keys(loot).length){text=`${p.nickname}: ${route.name}를 관찰했어요.`;break;}p.stamina--;n.wildlife![route.id]=now+w.config.animalRespawnSeconds*1000;for(const [good,count] of Object.entries(loot))for(let i=0;i<Number(count);i++)p.bag[good].push({id:`${id}-${good}-${i}`,good,sources:{[p.nation]:{[good]:1}}});p.learned.mined++;text=`${p.nickname}: ${route.name}에서 ${Object.keys(loot).map(g=>w.config.goods[g].name).join('·')}을 얻었어요.`;economic=true;break;}
- case 'plant': {own();assert(p.zone!=='mine','밭은 지상에 있어요.');const x=Number(cmd.x),z=Number(cmd.z),good=String(cmd.good);assert(farmCells(w).some(c=>c.x===x&&c.z===z),'밭 칸을 골라 주세요.');validNear(w,p,positions,{x,z,zone:'surface'});assert(good==='riceSeed'||good==='wheatSeed','벼 또는 밀 씨앗을 선택해 주세요.');const n=w.nations[p.nation],key=farmKey(x,z);assert(!n.crops![key],'이미 작물이 자라고 있어요.');take(p.bag,good,1);n.crops![key]={good:good==='riceSeed'?'rice':'wheat',plantedAt:now,by:p.nickname};text=`${p.nickname}: ${w.config.goods[good].name}을 심었어요.`;economic=true;break;}
- case 'harvest': {own();assert(p.zone!=='mine','밭은 지상에 있어요.');const x=Number(cmd.x),z=Number(cmd.z);assert(farmCells(w).some(c=>c.x===x&&c.z===z),'밭 칸을 골라 주세요.');validNear(w,p,positions,{x,z,zone:'surface'});const n=w.nations[p.nation],key=farmKey(x,z),crop=n.crops![key];assert(crop,'이 칸에는 작물이 없어요.');assert(cropMature(w,crop,now),'작물이 자라는 중이에요.');assert(p.stamina>0,'체력이 부족해요.');p.stamina--;delete n.crops![key];const amount=Math.max(1,Math.min(4,Number(w.config.farm.harvestAmount)||2)),seed=crop.good==='rice'?'riceSeed':'wheatSeed';for(let i=0;i<amount;i++)p.bag[crop.good].push({id:`${id}-${i}`,good:crop.good,sources:{[p.nation]:{[crop.good]:1}}});p.bag[seed].push({id:`${id}-seed`,good:seed,sources:{[p.nation]:{[seed]:1}}});p.learned.mined++;text=`${p.nickname}: ${w.config.goods[crop.good].name} ${amount}개와 씨앗을 수확했어요.`;economic=true;break;}
+ case 'dig': {
+  own();assert(p.zone!=='mine','지상의 땅을 골라 주세요.');
+  const x=Number(cmd.x),z=Number(cmd.z);assert(Number.isInteger(x)&&Number.isInteger(z)&&!protectedTile(w,p.nation,x,z),'이곳은 수업 시설을 위해 보호된 땅이에요.');
+  validNear(w,p,positions,{x,z,zone:'surface'},p.location,5.5);
+  const nation=w.nations[p.nation],key=`${x}_${z}`,depth=nation.dug![key]||0,ground=groundHeight(w,p.nation,x,z);
+  assert(depth<Math.max(1,Number(w.config.terrainDigDepth)||2)&&ground>0,'더 깊이 팔 수 없어요.');
+  assert(!Object.values(nation.freeVoxels||{}).some(v=>v.x===x&&v.z===z),'위에 쌓인 블록을 먼저 치워 주세요.');
+  assert(depth===0||p.tools.pickaxe,'깊은 돌층은 곡괭이가 필요해요.');assert(p.stamina>0,'체력이 부족해요.');
+  const needed=Math.max(1,Math.min(8,Number(w.config.hitCounts?.dirt??w.config.hitCounts?.default??2)));
+  if(cmd.hit===true){nation.groundHits![key]=(nation.groundHits![key]||0)+1;if(nation.groundHits![key]<needed){text=`${p.nickname}: 땅 타격 ${nation.groundHits![key]}/${needed}`;economic=true;break;}}
+  delete nation.groundHits![key];nation.dug![key]=depth+1;p.stamina--;
+  const good=depth===0?'dirt':'stone';p.bag[good].push({id,good,sources:{[p.nation]:{[good]:1}}});p.learned.mined++;
+  text=`${p.nickname}: 땅을 한 층 파서 ${w.config.goods[good].name}을 얻었어요.`;economic=true;break;
+ }
+ case 'placeFree': {
+  own();assert(p.zone!=='mine','지상에서 블록을 놓아 주세요.');
+  const x=Number(cmd.x),z=Number(cmd.z),nation=w.nations[p.nation];
+  assert(Number.isInteger(x)&&Number.isInteger(z)&&!protectedTile(w,p.nation,x,z),'이곳은 수업 시설을 위해 보호된 땅이에요.');
+  validNear(w,p,positions,{x,z,zone:'surface'},p.location,5.5);
+  assert(w.config.goods[cmd.good]?.placeable!==false&&w.config.goods[cmd.good],'건축할 수 있는 블록을 골라 주세요.');
+  assert(Object.keys(nation.freeVoxels||{}).length<Math.max(1,Number(w.config.freeBuildLimit)||600),'이 섬의 자유 건축 블록이 가득 찼어요.');
+  const y=surfaceHeight(w,p.nation,x,z),ground=groundHeight(w,p.nation,x,z),key=`${x}_${y}_${z}`;
+  assert(y-ground<Math.max(1,Number(w.config.freeBuildHeight)||8),'건물을 더 높이 쌓을 수 없어요.');
+  assert(!nation.freeVoxels![key],'이미 블록이 있어요.');
+  const unit=take(p.bag,cmd.good,1)[0];nation.freeVoxels![key]={x,y,z,unit,by:actor};p.learned.built++;
+  text=`${p.nickname}: 섬에 ${w.config.goods[cmd.good].name} 블록을 놓았어요.`;economic=true;break;
+ }
+ case 'removeFree': {
+  own();const nation=w.nations[p.nation],v=nation.freeVoxels?.[cmd.key];assert(v,'이미 없어진 블록이에요.');
+  validNear(w,p,positions,{x:v.x,z:v.z,zone:'surface'},p.location,5.5);assert(!nation.freeVoxels![`${v.x}_${v.y+1}_${v.z}`],'위 블록부터 가져와 주세요.');
+  put(p.bag,[v.unit]);delete nation.freeVoxels![cmd.key];text=`${p.nickname}: 자유 건축 블록을 회수했어요.`;economic=true;break;
+ }
+ case 'mine': {
+  own();const node=w.nations[p.nation].nodes[cmd.node];
+  assert(node&&node.readyAt<=now,'이미 캐낸 자원이에요. 다시 자랄 때까지 기다려 주세요.');
+  validNear(w,p,positions,node,p.location,5.5);assert(p.stamina>0,'체력을 모두 썼어요. 잠시 쉬며 거래·계획을 해 보세요.');
+  const tool=w.config.goods[node.good].tool;assert(!tool||p.tools[tool as 'pickaxe'],'곡괭이를 먼저 만들어 주세요.');
+  const needed=Math.max(1,Math.min(8,Number(w.config.hitCounts?.[node.good]??w.config.hitCounts?.default??1)));
+  if(cmd.hit===true){node.hits=(node.hits||0)+1;if(node.hits<needed){text=`${p.nickname}: ${w.config.goods[node.good].name} 타격 ${node.hits}/${needed}`;economic=true;break;}}
+  node.hits=0;p.stamina--;
+  if(node.good==='wood'&&cmd.hit===true){const layers=Math.max(1,Math.min(6,Number(w.config.treeLayers)||3));node.remaining=Math.max(0,(node.remaining??layers)-1);if(!node.remaining){node.readyAt=now+w.config.resourceSeconds*1000;node.remaining=layers;}}
+  else node.readyAt=now+w.config.resourceSeconds*1000;
+  p.bag[node.good].push({id,good:node.good,sources:{[p.nation]:{[node.good]:1}}});p.learned.mined++;
+  text=`${p.nickname}: ${w.config.goods[node.good].name} 블록 1개를 캤어요.`;economic=true;break;
+ }
+ case 'hunt': {
+  own();assert(p.zone!=='mine','동물은 지상에서 만날 수 있어요.');
+  const route=animalRoutes(w,p.nation).find(a=>a.id===cmd.animal);assert(route,'동물을 다시 찾아 주세요.');
+  const n=w.nations[p.nation];assert((n.wildlife?.[route.id]||0)<=now,'동물이 다시 나타날 때까지 기다려 주세요.');
+  const pose=animalPose(w,route,now);validNear(w,p,positions,{x:pose.x,z:pose.z,zone:'surface'},p.location,5.5);
+  const loot=w.config.animals[p.nation]?.loot||{};if(!Object.keys(loot).length){text=`${p.nickname}: ${route.name}를 관찰했어요.`;break;}
+  assert(p.stamina>0,'체력이 부족해요.');
+  const needed=Math.max(1,Math.min(8,Number(w.config.hitCounts?.animal)||1));
+  if(cmd.hit===true){n.wildlifeHits![route.id]=(n.wildlifeHits![route.id]||0)+1;if(n.wildlifeHits![route.id]<needed){text=`${p.nickname}: ${route.name} 타격 ${n.wildlifeHits![route.id]}/${needed}`;economic=true;break;}}
+  delete n.wildlifeHits![route.id];p.stamina--;n.wildlife![route.id]=now+w.config.animalRespawnSeconds*1000;
+  for(const [good,count] of Object.entries(loot))for(let i=0;i<Number(count);i++)p.bag[good].push({id:`${id}-${good}-${i}`,good,sources:{[p.nation]:{[good]:1}}});
+  p.learned.mined++;text=`${p.nickname}: ${route.name}에서 ${Object.keys(loot).map(g=>w.config.goods[g].name).join('·')}을 얻었어요.`;economic=true;break;
+ }
+ case 'plant': {own();assert(p.zone!=='mine','밭은 지상에 있어요.');const x=Number(cmd.x),z=Number(cmd.z),good=String(cmd.good);assert(farmCells(w).some(c=>c.x===x&&c.z===z),'밭 칸을 골라 주세요.');validNear(w,p,positions,{x,z,zone:'surface'},p.location,5.5);assert(good==='riceSeed'||good==='wheatSeed','벼 또는 밀 씨앗을 선택해 주세요.');const n=w.nations[p.nation],key=farmKey(x,z);assert(!n.crops![key],'이미 작물이 자라고 있어요.');take(p.bag,good,1);n.crops![key]={good:good==='riceSeed'?'rice':'wheat',plantedAt:now,by:p.nickname};text=`${p.nickname}: ${w.config.goods[good].name}을 심었어요.`;economic=true;break;}
+ case 'harvest': {own();assert(p.zone!=='mine','밭은 지상에 있어요.');const x=Number(cmd.x),z=Number(cmd.z);assert(farmCells(w).some(c=>c.x===x&&c.z===z),'밭 칸을 골라 주세요.');validNear(w,p,positions,{x,z,zone:'surface'},p.location,5.5);const n=w.nations[p.nation],key=farmKey(x,z),crop=n.crops![key];assert(crop,'이 칸에는 작물이 없어요.');assert(cropMature(w,crop,now),'작물이 자라는 중이에요.');assert(p.stamina>0,'체력이 부족해요.');p.stamina--;delete n.crops![key];const amount=Math.max(1,Math.min(4,Number(w.config.farm.harvestAmount)||2)),seed=crop.good==='rice'?'riceSeed':'wheatSeed';for(let i=0;i<amount;i++)p.bag[crop.good].push({id:`${id}-${i}`,good:crop.good,sources:{[p.nation]:{[crop.good]:1}}});p.bag[seed].push({id:`${id}-seed`,good:seed,sources:{[p.nation]:{[seed]:1}}});p.learned.mined++;text=`${p.nickname}: ${w.config.goods[crop.good].name} ${amount}개와 씨앗을 수확했어요.`;economic=true;break;}
  case 'eat': {active();const spec=w.config.goods[cmd.good];assert(spec?.food,'먹을 수 있는 음식이 아니에요.');assert(p.stamina<w.config.stamina.max,'체력이 이미 가득 찼어요.');take(p.bag,cmd.good,1);p.stamina=Math.min(w.config.stamina.max,p.stamina+Number(spec.food));p.staminaAt=now;text=`${p.nickname}: ${spec.name}을 먹고 체력을 회복했어요.`;economic=true;break;}
  case 'tool': {own();const t=w.config.tools[cmd.tool];assert(t&&!p.tools[cmd.tool as 'axe'],'도구를 확인해 주세요.');for(const [good,count]of Object.entries(t.cost))take(p.bag,good,Number(count));p.tools[cmd.tool as 'axe']=true;p.learned.crafted++;text=`${p.nickname}: ${t.name}를 만들었어요.`;economic=true;break;}
  case 'warehouse': {active();assert(p.location===p.nation||!!p.dispatch,'다른 나라 창고는 직접 가져갈 수 없어요. 다리에서 교역해 주세요.');validNear(w,p,positions,facilities(w.config.size).warehouse);const n=w.nations[p.location],q=quantity(cmd.quantity);assert(!p.dispatch||cmd.direction==='deposit','파견 중에는 받은 나라 창고의 재료를 작업대에서 사용해요.');assert(cmd.direction==='deposit'||cmd.direction==='withdraw','넣기 또는 꺼내기를 골라 주세요.');put(cmd.direction==='deposit'?n.stock:p.bag,take(cmd.direction==='deposit'?p.bag:n.stock,cmd.good,q));text=`${p.nickname}: 창고에 ${cmd.direction==='deposit'?'넣기':'꺼내기'} ${q}개`;economic=true;break;}
- case 'craft': {active();validNear(w,p,positions,facilities(w.config.size).workbench);const r=w.config.recipes[cmd.good];assert(r,'없는 조합법이에요.');assert(!r.technology||template(w,p.nation).technologies.includes(r.technology),'이 기술을 가진 나라의 학생이 필요해요.');const stock=p.dispatch?w.nations[p.location].stock:p.bag;const materials:Unit[]=[];for(const [good,count] of Object.entries(r.inputs))materials.push(...take(stock,good,Number(count)));const sources:Unit['sources']={};for(const u of materials)for(const [nation,goods]of Object.entries(u.sources)){sources[nation]||={};for(const [good,q]of Object.entries(goods))sources[nation][good]=(sources[nation][good]||0)+q/r.output;}const processes=[...new Map([...materials.flatMap(u=>u.processes||(u.processor?[{nation:u.processor,good:u.good}]:[])),{nation:p.nation,good:cmd.good}].map(v=>[v.nation+':'+v.good,v])).values()];for(let i=0;i<r.output;i++)stock[cmd.good].push({id:`${id}-${i}`,good:cmd.good,sources:structuredClone(sources),processor:p.nation,processes});p.learned.crafted++;text=`${p.nickname}: ${w.config.goods[cmd.good].name}를 가공했어요.${p.dispatch?' 받은 나라 창고에 들어갔어요.':''}`;economic=true;break;}
+ case 'craft': {active();validNear(w,p,positions,facilities(w.config.size).workbench);const r=w.config.recipes[cmd.good];assert(r,'없는 조합법이에요.');assert(!r.technology||template(w,p.nation).technologies.includes(r.technology),'이 기술을 가진 나라의 학생이 필요해요.');const stock=p.dispatch?w.nations[p.location].stock:p.bag;const materials:Unit[]=[];for(const [good,count] of Object.entries(r.inputs)){if(good==='fuel'){let left=Number(count);for(const option of ['fuel',...(w.config.fuelSubstitutes||[])]){const have=Math.min(left,stock[option]?.length||0);if(have){materials.push(...take(stock,option,have));left-=have;}if(!left)break;}assert(!left,'연료·석탄·목탄이 부족해요.');}else materials.push(...take(stock,good,Number(count)));}const sources:Unit['sources']={};for(const u of materials)for(const [nation,goods]of Object.entries(u.sources)){sources[nation]||={};for(const [good,q]of Object.entries(goods))sources[nation][good]=(sources[nation][good]||0)+q/r.output;}const processes=[...new Map([...materials.flatMap(u=>u.processes||(u.processor?[{nation:u.processor,good:u.good}]:[])),{nation:p.nation,good:cmd.good}].map(v=>[v.nation+':'+v.good,v])).values()];for(let i=0;i<r.output;i++)stock[cmd.good].push({id:`${id}-${i}`,good:cmd.good,sources:structuredClone(sources),processor:p.nation,processes});p.learned.crafted++;text=`${p.nickname}: ${w.config.goods[cmd.good].name}를 가공했어요.${p.dispatch?' 받은 나라 창고에 들어갔어요.':''}`;economic=true;break;}
  case 'bridge': {own();const b=w.bridges[cmd.bridge];assert(b&&(b.a===p.nation||b.b===p.nation),'자기 쪽 다리에만 놓을 수 있어요.');validNear(w,p,positions,bridgeStation(w,p.nation,b.id));const q=quantity(cmd.quantity),need=w.config.bridge[cmd.good];assert(need&&b.halves[p.nation][cmd.good].length+q<=need,'다리에 필요한 수량을 확인해 주세요.');put(b.halves[p.nation],take(p.bag,cmd.good,q));p.learned.built+=q;text=`${p.nickname}: 다리에 ${q}개 기여했어요.${bridgeReady(w,b)?' 양쪽 다리가 이어졌어요!':''}`;economic=true;break;}
  case 'visit': {active();assert(!p.dispatch,'파견 시간이 끝나면 돌아가요.');const b=bridgeBetween(w,p.location,cmd.nation);assert(b&&bridgeReady(w,b),'다리가 이어진 이웃 섬으로 갈 수 있어요.');validNear(w,p,positions,bridgeStation(w,p.location,b.id));p.location=cmd.nation;p.zone='surface';delete p.arrival;text=`${p.nickname}: 다리를 건너 이웃 섬에 왔어요.`;break;}
  case 'return':active();assert(!p.dispatch,'파견 시간이 끝나면 자동으로 돌아가요.');p.location=p.nation;p.zone='surface';delete p.arrival;text=`${p.nickname}: 자기 섬으로 돌아왔어요.`;break;
